@@ -36992,8 +36992,11 @@ async function resolveRef2(ref) {
   }
   const paste = PASTE_RE.exec(raw);
   if (paste) {
-    const { data: data2, ext: ext2 } = await pastedImage(Number(paste[1]));
-    return { record: { kind: "paste", source: `paste:${paste[1]}`, stored: storeInput(data2, ext2) }, dataUrl: dataUrl(data2, ext2) };
+    const { data: data2, ext: ext2, origin } = await pastedImage(Number(paste[1]));
+    return {
+      record: { kind: "paste", source: `paste:${paste[1]}`, origin, stored: storeInput(data2, ext2) },
+      dataUrl: dataUrl(data2, ext2)
+    };
   }
   if (/^https?:\/\//i.test(raw)) {
     const res = await fetch(raw, { signal: AbortSignal.timeout(3e4) });
@@ -37011,51 +37014,95 @@ async function resolveRef2(ref) {
   return { record: { kind: "file", source: file2, stored: storeInput(data, ext) }, dataUrl: dataUrl(data, ext) };
 }
 async function pastedImage(n) {
-  const configDir = process.env.CLAUDE_CONFIG_DIR || path4.join(os3.homedir(), ".claude");
-  const dir = path4.join(configDir, "projects", projectDir().replace(/[^a-zA-Z0-9]/g, "-"));
-  let files = [];
+  const projectsDir = path4.join(process.env.CLAUDE_CONFIG_DIR || path4.join(os3.homedir(), ".claude"), "projects");
+  const dir = path4.join(projectsDir, projectDir().replace(/[^a-zA-Z0-9]/g, "-"));
+  let found;
+  const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  const sessionFile = sessionId ? findSessionTranscript(projectsDir, dir, sessionId) : void 0;
+  if (sessionFile) {
+    found = await lastUserImages(sessionFile);
+    if (!found) throw new Error("No pasted images found in this session. Ask the user to paste the image again or give a file path.");
+  } else {
+    const recent = listTranscripts(dir).filter((f) => Date.now() - f.mtime < 30 * 6e4);
+    const hits = (await Promise.all(recent.map((f) => lastUserImages(f.file)))).filter((h) => !!h);
+    hits.sort((a, b) => a.timestamp < b.timestamp ? 1 : -1);
+    const fresh = hits.filter((h) => Date.now() - Date.parse(h.timestamp) < 10 * 6e4);
+    if (fresh.length > 1)
+      throw new Error(
+        "Several Claude sessions in this project pasted images in the last 10 minutes, so it's unclear which paste is meant. Ask the user for a file path instead (dragging the file into the terminal inserts it)."
+      );
+    found = hits[0];
+  }
+  if (!found)
+    throw new Error(
+      `Could not find pasted image #${n} in this session's transcript (${dir}). Ask the user to drag the file in (which inserts its path) or give a file path instead.`
+    );
+  const img = found.images[n - 1];
+  if (!img) throw new Error(`The last message with images has ${found.images.length} image(s); there is no image #${n}.`);
+  const ext = Object.entries(MIME).find(([, m]) => m === img.mediaType)?.[0] ?? "png";
+  const origin = `pasted ${found.timestamp.slice(0, 16).replace("T", " ")} UTC in session ${path4.basename(found.file, ".jsonl").slice(0, 8)}${sessionFile ? "" : ", matched by recency"}`;
+  return { data: Buffer.from(img.data, "base64"), ext, origin };
+}
+function listTranscripts(dir) {
   try {
-    files = fs4.readdirSync(dir).filter((f) => f.endsWith(".jsonl")).map((f) => ({ file: path4.join(dir, f), mtime: fs4.statSync(path4.join(dir, f)).mtimeMs })).sort((a, b) => b.mtime - a.mtime);
+    return fs4.readdirSync(dir).filter((f) => f.endsWith(".jsonl")).map((f) => ({ file: path4.join(dir, f), mtime: fs4.statSync(path4.join(dir, f)).mtimeMs })).sort((a, b) => b.mtime - a.mtime);
+  } catch {
+    return [];
+  }
+}
+function findSessionTranscript(projectsDir, dir, sessionId) {
+  const name = `${sessionId}.jsonl`;
+  if (fs4.existsSync(path4.join(dir, name))) return path4.join(dir, name);
+  try {
+    for (const d of fs4.readdirSync(projectsDir)) {
+      const candidate = path4.join(projectsDir, d, name);
+      if (fs4.existsSync(candidate)) return candidate;
+    }
   } catch {
   }
-  const recent = files.filter((f) => Date.now() - f.mtime < 30 * 6e4).slice(0, 3);
-  for (const { file: file2 } of recent) {
-    const images = lastUserImages(file2);
-    if (!images) continue;
-    const img = images[n - 1];
-    if (!img) throw new Error(`Your last message with images has ${images.length} image(s); there is no image #${n}.`);
-    const ext = Object.entries(MIME).find(([, m]) => m === img.mediaType)?.[0] ?? "png";
-    return { data: Buffer.from(img.data, "base64"), ext };
-  }
-  throw new Error(
-    `Could not find pasted image #${n} in this session's transcript (${dir}). Ask the user to drag the file in (which inserts its path) or give a file path instead.`
-  );
+  return void 0;
 }
-function lastUserImages(file2) {
-  const size = fs4.statSync(file2).size;
-  const fd = fs4.openSync(file2, "r");
+var CHUNK = 4 << 20;
+var MAX_SCAN = 256 << 20;
+var MAX_LINE = 128 << 20;
+async function lastUserImages(file2) {
+  const fh = await fs4.promises.open(file2, "r");
   try {
-    for (let window = 8 << 20; ; window *= 4) {
-      const start = Math.max(0, size - window);
-      const buf = Buffer.alloc(size - start);
-      fs4.readSync(fd, buf, 0, buf.length, start);
-      const lines = buf.toString("utf8").split("\n");
-      if (start > 0) lines.shift();
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i];
-        if (!line.includes('"image"') || !line.includes('"user"')) continue;
-        try {
-          const entry = JSON.parse(line);
-          if (entry.type !== "user" || !Array.isArray(entry.message?.content)) continue;
-          const imgs = entry.message.content.filter((b) => b?.type === "image" && b.source?.type === "base64").map((b) => ({ mediaType: b.source.media_type, data: b.source.data }));
-          if (imgs.length) return imgs;
-        } catch {
-        }
+    let pos = (await fh.stat()).size;
+    let carry = Buffer.alloc(0);
+    let scanned = 0;
+    while (pos > 0 && scanned < MAX_SCAN) {
+      const len = Math.min(CHUNK, pos);
+      pos -= len;
+      scanned += len;
+      const chunk = Buffer.alloc(len);
+      await fh.read(chunk, 0, len, pos);
+      const buf = Buffer.concat([chunk, carry]);
+      let end = buf.length;
+      while (end > 0) {
+        const nl = buf.lastIndexOf(10, end - 1);
+        if (nl < 0) break;
+        const hit = parseLine(buf.subarray(nl + 1, end), file2);
+        if (hit) return hit;
+        end = nl;
       }
-      if (start === 0 || window > 512 << 20) return void 0;
+      carry = Buffer.from(buf.subarray(0, end));
+      if (carry.length > MAX_LINE) return void 0;
     }
+    return pos === 0 ? parseLine(carry, file2) : void 0;
   } finally {
-    fs4.closeSync(fd);
+    await fh.close();
+  }
+}
+function parseLine(line, file2) {
+  if (!line.length || !line.includes('"image"') || !line.includes('"user"')) return void 0;
+  try {
+    const entry = JSON.parse(line.toString("utf8"));
+    if (entry.type !== "user" || !Array.isArray(entry.message?.content)) return void 0;
+    const images = entry.message.content.filter((b) => b?.type === "image" && b.source?.type === "base64").map((b) => ({ mediaType: b.source.media_type, data: b.source.data }));
+    return images.length ? { file: file2, images, timestamp: entry.timestamp ?? "" } : void 0;
+  } catch {
+    return void 0;
   }
 }
 
@@ -37896,7 +37943,7 @@ server.registerTool(
       `Batch ${result.batch}: ${ok.length}/${result.results.length} image(s) in ${result.seconds}s. Gallery: ${result.url}`
     ];
     if (result.parent) lines.push(`Refined from ${result.parent.id}.`);
-    if (result.refs.length) lines.push(`References: ${result.refs.map((r) => r.record.source).join(", ")}`);
+    if (result.refs.length) lines.push(`References: ${result.refs.map((r) => r.record.source + (r.record.origin ? ` (${r.record.origin})` : "")).join(", ")}`);
     const content = [];
     const edge = result.results.length === 1 ? 1024 : result.results.length <= 4 ? 768 : 512;
     for (const r of result.results) {

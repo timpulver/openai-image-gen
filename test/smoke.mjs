@@ -21,15 +21,24 @@ fs.writeFileSync(refFile, gradientPng(64, 64));
 const transcriptDir = path.join(claudeDir, "projects", proj.replace(/[^a-zA-Z0-9]/g, "-"));
 fs.mkdirSync(transcriptDir, { recursive: true });
 const img = (w) => ({ type: "image", source: { type: "base64", media_type: "image/png", data: gradientPng(w, w).toString("base64") } });
+const now = new Date().toISOString();
+const jsonl = (entries) => entries.map((l) => JSON.stringify({ timestamp: now, ...l })).join("\n") + "\n";
 fs.writeFileSync(
   path.join(transcriptDir, "session.jsonl"),
-  [
+  jsonl([
     { type: "user", message: { role: "user", content: [img(10)] } },
     { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
     { type: "user", message: { role: "user", content: [{ type: "text", text: "like these [Image #1] [Image #2]" }, img(32), img(48)] } },
-  ]
-    .map((l) => JSON.stringify(l))
-    .join("\n") + "\n",
+    // Tool output with an image (e.g. a screenshot Claude read) is not a paste and must be skipped.
+    { type: "user", message: { role: "user", content: [{ type: "tool_result", content: [img(16)] }] } },
+    // Padding so the backwards scan has to cross chunk boundaries.
+    { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "x".repeat(6 << 20) }] } },
+  ]),
+);
+// Another session in the same project that pasted more recently: must not be used when the session id is known.
+fs.writeFileSync(
+  path.join(transcriptDir, "other.jsonl"),
+  jsonl([{ type: "user", message: { role: "user", content: [img(20), img(24)] } }]),
 );
 
 const mock = await startMock();
@@ -48,6 +57,7 @@ await client.connect(
       OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN: "test-key",
       CLAUDE_PROJECT_DIR: proj,
       CLAUDE_CONFIG_DIR: claudeDir,
+      CLAUDE_CODE_SESSION_ID: "session",
     },
     stderr: "inherit",
   }),
@@ -112,8 +122,9 @@ try {
   assert.deepEqual(cj.refs.map((x) => x.kind), ["paste", "file"]);
   // paste:2 must be the 48px image from the LAST message with images
   const pasted = fs.readFileSync(path.join(lib, "inputs", cj.refs[0].stored));
-  assert.equal(pasted.readUInt32BE(16), 48);
-  ok("refine via previous_response_id + pasted image + file reference");
+  assert.equal(pasted.readUInt32BE(16), 48, "paste:2 must come from this session, not the newer other.jsonl");
+  assert.match(r.text, /paste:2 \(pasted .* in session session\)/);
+  ok("refine via previous_response_id + pasted image (from this session) + file reference");
 
   const s = sidecar(b);
   s.json.openai.responseId = "resp_expired";
@@ -183,6 +194,33 @@ try {
   });
   assert.equal((await star.json()).starred, false);
   ok("gallery: feed, thumbnails, starring, and request guards");
+
+  // A second session (another MCP process): forwards its events to the gallery owner, and without a
+  // session id it must refuse to guess which of two recent pastes is meant.
+  const client2 = new Client({ name: "smoke2", version: "1" });
+  await client2.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: [path.resolve("dist/server.js")],
+      cwd: proj,
+      env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache2"),
+        CLAUDE_IMAGE_GEN_API_BASE: mock.url, OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN: "test-key", CLAUDE_PROJECT_DIR: proj,
+        CLAUDE_CONFIG_DIR: claudeDir, CLAUDE_CODE_SESSION_ID: "" },
+      stderr: "inherit",
+    }),
+  );
+  try {
+    const r2 = await client2.callTool({ name: "generate_images", arguments: { prompt: "x", refs: ["paste:1"], show: false } });
+    assert.equal(r2.isError, true);
+    assert.match(r2.content[0].text, /Several Claude sessions/);
+    const r3 = await client2.callTool({ name: "generate_images", arguments: { prompt: "from the second session", show: false } });
+    assert.equal(r3.isError, false);
+    const feed2 = await (await fetch(`${base}/api/feed`)).json();
+    assert.ok(feed2.batches.some((g) => g.prompt === "from the second session"), "second process's batch reaches the gallery");
+  } finally {
+    await client2.close();
+  }
+  ok("second session: forwards gallery events, refuses ambiguous pastes");
 
   // A file deleted behind the server's back must give a 404, not crash the MCP server.
   fs.rmSync(sidecar(b).file.replace(".json", ".png"));

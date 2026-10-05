@@ -92,7 +92,7 @@ server.registerTool(
       `Batch ${result.batch}: ${ok.length}/${result.results.length} image(s) in ${result.seconds}s. Gallery: ${result.url}`,
     ];
     if (result.parent) lines.push(`Refined from ${result.parent.id}.`);
-    if (result.refs.length) lines.push(`References: ${result.refs.map((r) => r.record.source).join(", ")}`);
+    if (result.refs.length) lines.push(`References: ${result.refs.map((r) => r.record.source + (r.record.origin ? ` (${r.record.origin})` : "")).join(", ")}`);
     const content: any[] = [];
     const edge = result.results.length === 1 ? 1024 : result.results.length <= 4 ? 768 : 512;
     for (const r of result.results) {

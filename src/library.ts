@@ -12,6 +12,8 @@ export interface RefRecord {
   source: string;
   /** Library image id (kind=library) or file name inside inputs/. */
   stored: string;
+  /** For pastes: which session/message the image came from, so mix-ups are visible. */
+  origin?: string;
 }
 
 export interface ImageRecord {
