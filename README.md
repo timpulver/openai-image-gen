@@ -149,7 +149,8 @@ image's details show which method was used ("continued conversation" or "parent 
   single file by creating `file 2.json` conflict copies, so the server never keeps one.
 - **Offloaded files**: if macOS "Optimise Mac Storage" evicts images, the server downloads them on demand. To avoid
   the wait, right-click the folder in Finder and choose **Keep Downloaded**.
-- To use a different location, set `CLAUDE_IMAGE_GEN_LIBRARY=/path/to/folder`.
+- Without iCloud Drive, the library goes to `~/Pictures/Claude Images` instead. To use a different location, set
+  `CLAUDE_IMAGE_GEN_LIBRARY=/path/to/folder`.
 
 ### Permanent for you, exported for everyone else
 
@@ -185,7 +186,7 @@ it uses `inspect_image` to zoom into a region at native resolution. Claude's vis
 |---|---|
 | `generate_images` | prompt, count, `from` (parent id / `last`), `refs`, size, quality, format, background, action, `show` |
 | `inspect_image` | zoom: `region` (`top-left`, `center`, …) or `box` [x, y, w, h] as fractions |
-| `list_images` | search, starred, children of an image |
+| `list_images` | `query` (prompt or id text), `starred`, `parent` (refinements of an image) |
 | `export_image` | copy into the project (converts format by extension), stars it |
 | `image_settings` | show or change persistent defaults |
 | `list_image_models` | models available to your key |
@@ -195,8 +196,8 @@ it uses `inspect_image` to zoom into a region at native resolution. Claude's vis
 
 - Prompts and reference images are sent to OpenAI. Pasted images are only read from the transcript when you
   reference them.
-- Responses are stored by OpenAI (`store: true`, about 30 days). Refining via `previous_response_id` depends on that;
-  after it expires, the parent image is re-uploaded instead.
+- Responses are stored by OpenAI (the Responses API default, `store: true`; about 30 days). Refining via
+  `previous_response_id` depends on that; after it expires, the parent image is re-uploaded instead.
 - The gallery listens on `127.0.0.1` only, rejects requests for other host names, and requires a custom header for
   writes, so websites can't post to it. Other user accounts on the same Mac can still reach it locally.
 
