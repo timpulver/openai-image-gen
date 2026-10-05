@@ -193,7 +193,14 @@ try {
     body: JSON.stringify({ id: a, starred: false }),
   });
   assert.equal((await star.json()).starred, false);
-  ok("gallery: feed, thumbnails, starring, and request guards");
+  const bad = await fetch(`${base}/api/event`, {
+    method: "POST",
+    headers: { "x-claude-image-gen": "1", "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "batch", batch: "broken" }),
+  });
+  assert.equal(bad.status, 400);
+  assert.equal((await fetch(`${base}/api/feed`)).status, 200, "a malformed event must not break the feed");
+  ok("gallery: feed, thumbnails, starring, request guards, malformed events rejected");
 
   // A second session (another MCP process): forwards its events to the gallery owner, and without a
   // session id it must refuse to guess which of two recent pastes is meant.

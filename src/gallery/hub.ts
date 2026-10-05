@@ -201,9 +201,17 @@ class Gallery {
     if (req.method === "POST") {
       // A custom header forces a CORS preflight we never approve, so other websites can't post here.
       if (req.headers[AUTH_HEADER] !== "1") return void res.writeHead(403).end();
-      const body = JSON.parse((await readBody(req)) || "{}");
+      let body: any;
+      try {
+        body = JSON.parse((await readBody(req)) || "{}");
+      } catch (e: any) {
+        return json({ error: e?.message ?? "invalid body" }, 400);
+      }
       if (p === "/api/event") {
-        this.apply(body as GalleryEvent);
+        // Other sessions may run a different plugin version: drop anything we don't understand
+        // rather than storing it, where it would break every later /api/feed.
+        if (!isGalleryEvent(body)) return json({ error: "invalid event" }, 400);
+        this.apply(body);
         return json({ ok: true });
       }
       if (p === "/api/star" && isImageId(body.id)) {
@@ -310,12 +318,35 @@ async function thumbnail(r: ImageRecord, file: string): Promise<string> {
   }
 }
 
+function isGalleryEvent(v: any): v is GalleryEvent {
+  const str = (x: unknown) => typeof x === "string";
+  if (!v || typeof v !== "object") return false;
+  switch (v.type) {
+    case "batch":
+      return (
+        str(v.batch) && Array.isArray(v.ids) && v.ids.every(str) && str(v.prompt) && str(v.imageModel) &&
+        str(v.createdAt) && (v.parent === undefined || str(v.parent))
+      );
+    case "image":
+      return str(v.batch) && str(v.id);
+    case "error":
+      return str(v.batch) && str(v.id) && str(v.message);
+    case "updated":
+      return str(v.id);
+    default:
+      return false;
+  }
+}
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = "";
     req.on("data", (c) => {
       data += c;
-      if (data.length > 1 << 20) reject(new Error("body too large"));
+      if (data.length > 1 << 20) {
+        reject(new Error("body too large"));
+        req.destroy();
+      }
     });
     req.on("end", () => resolve(data));
     req.on("error", reject);

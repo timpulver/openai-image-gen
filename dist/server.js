@@ -37626,8 +37626,14 @@ var Gallery = class {
     };
     if (req.method === "POST") {
       if (req.headers[AUTH_HEADER] !== "1") return void res.writeHead(403).end();
-      const body = JSON.parse(await readBody(req) || "{}");
+      let body;
+      try {
+        body = JSON.parse(await readBody(req) || "{}");
+      } catch (e) {
+        return json2({ error: e?.message ?? "invalid body" }, 400);
+      }
       if (p === "/api/event") {
+        if (!isGalleryEvent(body)) return json2({ error: "invalid event" }, 400);
         this.apply(body);
         return json2({ ok: true });
       }
@@ -37724,12 +37730,31 @@ async function thumbnail(r, file2) {
     return file2;
   }
 }
+function isGalleryEvent(v) {
+  const str = (x) => typeof x === "string";
+  if (!v || typeof v !== "object") return false;
+  switch (v.type) {
+    case "batch":
+      return str(v.batch) && Array.isArray(v.ids) && v.ids.every(str) && str(v.prompt) && str(v.imageModel) && str(v.createdAt) && (v.parent === void 0 || str(v.parent));
+    case "image":
+      return str(v.batch) && str(v.id);
+    case "error":
+      return str(v.batch) && str(v.id) && str(v.message);
+    case "updated":
+      return str(v.id);
+    default:
+      return false;
+  }
+}
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
     req.on("data", (c) => {
       data += c;
-      if (data.length > 1 << 20) reject(new Error("body too large"));
+      if (data.length > 1 << 20) {
+        reject(new Error("body too large"));
+        req.destroy();
+      }
     });
     req.on("end", () => resolve(data));
     req.on("error", reject);
