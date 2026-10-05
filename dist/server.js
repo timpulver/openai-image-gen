@@ -37046,7 +37046,7 @@ async function resolveRef2(ref) {
     const type = res.headers.get("content-type")?.split(";")[0] ?? "";
     const ext2 = Object.entries(MIME).find(([, m]) => m === type)?.[0];
     if (!ext2) throw new Error(`${raw} is not a png/jpeg/webp/gif image (content-type: ${type || "unknown"}).`);
-    const data2 = Buffer.from(await res.arrayBuffer());
+    const data2 = await readCapped(res, raw);
     return { record: { kind: "url", source: raw, stored: storeInput(data2, ext2) }, dataUrl: dataUrl(data2, ext2) };
   }
   const file2 = path4.resolve(projectDir(), expandHome(raw.replace(/^file:\/\//, "")));
@@ -37054,6 +37054,19 @@ async function resolveRef2(ref) {
   if (!isSupportedInput(file2)) throw new Error(`Unsupported reference image type: ${file2}`);
   const { data, ext } = await toUploadable(file2);
   return { record: { kind: "file", source: file2, stored: storeInput(data, ext) }, dataUrl: dataUrl(data, ext) };
+}
+var MAX_DOWNLOAD = 50 << 20;
+async function readCapped(res, url2) {
+  const tooBig = () => new Error(`${url2} is larger than ${MAX_DOWNLOAD >> 20} MB.`);
+  if (Number(res.headers.get("content-length")) > MAX_DOWNLOAD) throw tooBig();
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of res.body) {
+    total += chunk.length;
+    if (total > MAX_DOWNLOAD) throw tooBig();
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 async function pastedImage(n) {
   const projectsDir = path4.join(process.env.CLAUDE_CONFIG_DIR || path4.join(os3.homedir(), ".claude"), "projects");

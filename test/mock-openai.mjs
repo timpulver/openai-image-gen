@@ -42,6 +42,19 @@ export function startMock() {
         res.writeHead(status, { "Content-Type": "application/json" });
         res.end(JSON.stringify(json));
       };
+      if (req.url === "/big.png") {
+        // 51 MB, chunked, no Content-Length: only a byte counter can stop it.
+        res.writeHead(200, { "Content-Type": "image/png" });
+        const block = Buffer.alloc(1 << 20);
+        let sent = 0;
+        const pump = () => {
+          while (sent < 51 && res.write(block)) sent++;
+          if (sent < 51) res.once("drain", pump);
+          else res.end();
+        };
+        res.on("error", () => {});
+        return pump();
+      }
       if (req.url === "/v1/models") {
         return send(200, { data: ["gpt-6-astra", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "tts-1"].map((id) => ({ id })) });
       }

@@ -143,6 +143,11 @@ try {
   assert.equal(sidecar(ids(r.text)[0]).json.context, "parent_image");
   ok("expired stored context falls back to re-uploading the parent image");
 
+  r = await call("generate_images", { prompt: "x", refs: [mock.url.replace("/v1", "/big.png")], show: false });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /larger than 50 MB/);
+  ok("URL references are capped at 50 MB");
+
   r = await call("generate_images", { prompt: "BLOCK me", show: false });
   assert.equal(r.isError, true);
   assert.match(r.text, /moderation \(input stage\): violence/);

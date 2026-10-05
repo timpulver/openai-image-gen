@@ -52,7 +52,7 @@ export async function resolveRef(ref: string): Promise<ResolvedRef> {
     const type = res.headers.get("content-type")?.split(";")[0] ?? "";
     const ext = Object.entries(MIME).find(([, m]) => m === type)?.[0];
     if (!ext) throw new Error(`${raw} is not a png/jpeg/webp/gif image (content-type: ${type || "unknown"}).`);
-    const data = Buffer.from(await res.arrayBuffer());
+    const data = await readCapped(res, raw);
     return { record: { kind: "url", source: raw, stored: storeInput(data, ext) }, dataUrl: dataUrl(data, ext) };
   }
 
@@ -61,6 +61,23 @@ export async function resolveRef(ref: string): Promise<ResolvedRef> {
   if (!isSupportedInput(file)) throw new Error(`Unsupported reference image type: ${file}`);
   const { data, ext } = await toUploadable(file);
   return { record: { kind: "file", source: file, stored: storeInput(data, ext) }, dataUrl: dataUrl(data, ext) };
+}
+
+// OpenAI rejects larger input images anyway; this keeps a bad URL from filling memory.
+const MAX_DOWNLOAD = 50 << 20;
+
+/** Read a response body, refusing more than MAX_DOWNLOAD bytes whether or not Content-Length is honest. */
+async function readCapped(res: Response, url: string): Promise<Buffer> {
+  const tooBig = () => new Error(`${url} is larger than ${MAX_DOWNLOAD >> 20} MB.`);
+  if (Number(res.headers.get("content-length")) > MAX_DOWNLOAD) throw tooBig();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    total += chunk.length;
+    if (total > MAX_DOWNLOAD) throw tooBig(); // leaving the loop cancels the download
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 
 /**
