@@ -215,12 +215,23 @@ try {
     assert.match(r2.content[0].text, /Several Claude sessions/);
     const r3 = await client2.callTool({ name: "generate_images", arguments: { prompt: "from the second session", show: false } });
     assert.equal(r3.isError, false);
+    // A fresh process has no session history, so "last" falls back to the newest library batch
+    // (here a 2-image batch from another session) and must apply the same ambiguity rule.
+    await client2.callTool({ name: "generate_images", arguments: { prompt: "pair", count: 2, show: false } });
+    const client3 = new Client({ name: "smoke3", version: "1" });
+    await client3.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve("dist/server.js")], cwd: proj,
+      env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache3"),
+        CLAUDE_IMAGE_GEN_API_BASE: mock.url, OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN: "test-key" }, stderr: "inherit" }));
+    const r4 = await client3.callTool({ name: "generate_images", arguments: { prompt: "x", from: "last", show: false } });
+    await client3.close();
+    assert.equal(r4.isError, true);
+    assert.match(r4.content[0].text, /newest batch has 2 images/);
     const feed2 = await (await fetch(`${base}/api/feed`)).json();
     assert.ok(feed2.batches.some((g) => g.prompt === "from the second session"), "second process's batch reaches the gallery");
   } finally {
     await client2.close();
   }
-  ok("second session: forwards gallery events, refuses ambiguous pastes");
+  ok("second session: forwards gallery events, refuses ambiguous pastes; new session's \"last\" is ambiguity-checked");
 
   // A file deleted behind the server's back must give a 404, not crash the MCP server.
   fs.rmSync(sidecar(b).file.replace(".json", ".png"));

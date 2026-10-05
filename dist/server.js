@@ -36804,8 +36804,16 @@ async function resolveOne(ref) {
     const batch = sessionBatches.at(-1);
     if (batch && batch.length > 1)
       throw new Error(`"last" is ambiguous: the last batch has ${batch.length} images (${batch.join(", ")}). Pick one.`);
-    const id = batch?.[0] ?? allRecords()[0]?.id;
-    if (!id) throw new Error("The library is empty, so there is no last image yet.");
+    let id = batch?.[0];
+    if (!id) {
+      const all = allRecords();
+      const newest = all[0];
+      if (!newest) throw new Error("The library is empty, so there is no last image yet.");
+      const siblings = all.filter((r3) => r3.batch === newest.batch).map((r3) => r3.id);
+      if (siblings.length > 1)
+        throw new Error(`"last" is ambiguous: the newest batch has ${siblings.length} images (${siblings.join(", ")}). Pick one.`);
+      id = newest.id;
+    }
     const r2 = await getRecord(id);
     if (!r2) throw new Error(`Image ${id} is missing from the library.`);
     return r2;
