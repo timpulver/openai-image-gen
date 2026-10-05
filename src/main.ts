@@ -4,7 +4,7 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { KEY_NAME, Settings, VERSION, expandHome, libraryDir, loadSettings, projectDir, saveSettings } from "./config.js";
+import { KEY_NAME, Settings, VERSION, expandHome, libraryDir, loadSettings, localSettingsPath, projectDir, saveSettings } from "./config.js";
 import { BatchResult, generate } from "./generate.js";
 import { gallery, runStandaloneGallery } from "./gallery/hub.js";
 import { crop, extOf, preview } from "./images.js";
@@ -252,7 +252,8 @@ server.registerTool(
         content: [
           text(
             `${Object.keys(patch).length ? "Saved. " : ""}Settings (null = API default):\n${JSON.stringify(s, null, 2)}\n` +
-              `Library: ${libraryDir()}\nAPI key from: ${keySource}`,
+              `Library: ${libraryDir()} (settings shared by all Macs)\n` +
+              `This Mac only: galleryPort, openGallery (${localSettingsPath()})\nAPI key from: ${keySource}`,
           ),
         ],
       };

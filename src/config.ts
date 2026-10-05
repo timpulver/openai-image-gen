@@ -71,8 +71,32 @@ export const DEFAULT_SETTINGS: Settings = {
   galleryPort: 47821,
 };
 
-/** Settings live inside the library so model choices follow you to every Mac. */
+/** Settings live inside the library so model choices follow you to every Mac... */
 const settingsPath = () => path.join(libraryDir(), "settings.json");
+
+/** ...except these, which are about this machine (a port taken on one Mac says nothing about the others). */
+const LOCAL_KEYS = ["galleryPort", "openGallery"] as const satisfies readonly (keyof Settings)[];
+type LocalKey = (typeof LOCAL_KEYS)[number];
+const isLocalKey = (k: string): k is LocalKey => (LOCAL_KEYS as readonly string[]).includes(k);
+
+export function localSettingsPath(): string {
+  const base =
+    process.env.CLAUDE_IMAGE_GEN_LOCAL_CONFIG ||
+    (process.platform === "darwin"
+      ? path.join(os.homedir(), "Library/Application Support", APP_NAME)
+      : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), APP_NAME));
+  return path.join(base, "local.json");
+}
+
+function loadLocalSettings(): Partial<Settings> {
+  const file = localSettingsPath();
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (e: any) {
+    if (e?.code === "ENOENT") return {};
+    throw new Error(`${file} is unreadable or not valid JSON. Fix or delete it; nothing was changed.`);
+  }
+}
 
 /**
  * Only a missing file means "no settings yet". Anything else (unreadable,
@@ -91,11 +115,13 @@ export function loadSettings(): Settings {
     if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
     text = downloadFromICloudSync(file);
   }
+  let shared: Partial<Settings>;
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(text) };
+    shared = JSON.parse(text);
   } catch {
     throw new Error(`${file} is not valid JSON (perhaps a half-synced iCloud copy). Fix or delete it; nothing was changed.`);
   }
+  return { ...DEFAULT_SETTINGS, ...shared, ...loadLocalSettings() };
 }
 
 /** Older macOS versions offload files as ".name.icloud" placeholders; fetch one synchronously. */
@@ -114,9 +140,19 @@ function downloadFromICloudSync(file: string, timeoutMs = 30_000): string {
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const next = { ...loadSettings(), ...patch }; // throws (and writes nothing) if the current file is unreadable
-  writeFileAtomic(settingsPath(), JSON.stringify(next, null, 2) + "\n");
-  return next;
+  const current = loadSettings(); // throws (and writes nothing) if a current file is unreadable
+  const local: Record<string, unknown> = {};
+  const shared: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) (isLocalKey(k) ? local : shared)[k] = v;
+  if (Object.keys(shared).length) {
+    const next: Record<string, unknown> = { ...current, ...shared };
+    for (const k of LOCAL_KEYS) delete next[k];
+    writeFileAtomic(settingsPath(), JSON.stringify(next, null, 2) + "\n");
+  }
+  if (Object.keys(local).length) {
+    writeFileAtomic(localSettingsPath(), JSON.stringify({ ...loadLocalSettings(), ...local }, null, 2) + "\n");
+  }
+  return { ...current, ...patch };
 }
 
 /** Write via temp file + rename so iCloud never syncs a half-written file. */

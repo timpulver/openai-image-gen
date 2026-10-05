@@ -42,7 +42,7 @@ fs.writeFileSync(
 );
 
 const mock = await startMock();
-const port = 47000 + Math.floor(Math.random() * 900);
+const port = 47000 + Math.floor(Math.random() * 800); // stays below the real default, 47821
 const client = new Client({ name: "smoke", version: "1" });
 await client.connect(
   new StdioClientTransport({
@@ -53,6 +53,7 @@ await client.connect(
       ...process.env,
       CLAUDE_IMAGE_GEN_LIBRARY: lib,
       CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache"),
+      CLAUDE_IMAGE_GEN_LOCAL_CONFIG: path.join(root, "local"),
       CLAUDE_IMAGE_GEN_API_BASE: mock.url,
       OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN: "test-key",
       CLAUDE_PROJECT_DIR: proj,
@@ -79,7 +80,11 @@ const ok = (msg) => console.log(`  ✓ ${++step}. ${msg}`);
 try {
   let r = await call("image_settings", { galleryPort: port, openGallery: false, quality: "low" });
   assert.match(r.text, new RegExp(`"galleryPort": ${port}`));
-  ok("settings persist into the library");
+  const shared = JSON.parse(fs.readFileSync(path.join(lib, "settings.json"), "utf8"));
+  assert.equal(shared.quality, "low");
+  assert.ok(!("galleryPort" in shared), "machine-local settings must not go into the synced library");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, "local", "local.json"), "utf8")).galleryPort, port);
+  ok("settings persist: models etc. in the library, galleryPort/openGallery on this machine");
 
   // A corrupt settings file must be reported, never silently replaced by defaults.
   const settingsFile = path.join(lib, "settings.json");
@@ -210,7 +215,7 @@ try {
       command: process.execPath,
       args: [path.resolve("dist/server.js")],
       cwd: proj,
-      env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache2"),
+      env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache2"), CLAUDE_IMAGE_GEN_LOCAL_CONFIG: path.join(root, "local"),
         CLAUDE_IMAGE_GEN_API_BASE: mock.url, OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN: "test-key", CLAUDE_PROJECT_DIR: proj,
         CLAUDE_CONFIG_DIR: claudeDir, CLAUDE_CODE_SESSION_ID: "" },
       stderr: "inherit",
@@ -227,7 +232,7 @@ try {
     await client2.callTool({ name: "generate_images", arguments: { prompt: "pair", count: 2, show: false } });
     const client3 = new Client({ name: "smoke3", version: "1" });
     await client3.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve("dist/server.js")], cwd: proj,
-      env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache3"),
+      env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache3"), CLAUDE_IMAGE_GEN_LOCAL_CONFIG: path.join(root, "local"),
         CLAUDE_IMAGE_GEN_API_BASE: mock.url, OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN: "test-key" }, stderr: "inherit" }));
     const r4 = await client3.callTool({ name: "generate_images", arguments: { prompt: "x", from: "last", show: false } });
     await client3.close();
@@ -239,6 +244,17 @@ try {
     await client2.close();
   }
   ok("second session: forwards gallery events, refuses ambiguous pastes; new session's \"last\" is ambiguity-checked");
+
+  // Changing the port moves the running gallery instead of splitting it across two ports.
+  const port2 = port + 1;
+  await call("image_settings", { galleryPort: port2 });
+  await call("generate_images", { prompt: "after port change", show: false });
+  const moved = await (await fetch(`http://127.0.0.1:${port2}/api/feed`)).json();
+  assert.ok(moved.batches.some((g) => g.prompt === "after port change"));
+  await assert.rejects(fetch(`http://127.0.0.1:${port}/api/ping`), "old port must be released");
+  await call("image_settings", { galleryPort: port });
+  await call("generate_images", { prompt: "back on the first port", show: false }); // re-elects on the old port
+  ok("changing galleryPort moves the gallery");
 
   // A file deleted behind the server's back must give a 404, not crash the MCP server.
   fs.rmSync(sidecar(b).file.replace(".json", ".png"));

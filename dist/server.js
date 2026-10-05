@@ -36587,6 +36587,21 @@ var DEFAULT_SETTINGS = {
   galleryPort: 47821
 };
 var settingsPath = () => path.join(libraryDir(), "settings.json");
+var LOCAL_KEYS = ["galleryPort", "openGallery"];
+var isLocalKey = (k) => LOCAL_KEYS.includes(k);
+function localSettingsPath() {
+  const base = process.env.CLAUDE_IMAGE_GEN_LOCAL_CONFIG || (process.platform === "darwin" ? path.join(os.homedir(), "Library/Application Support", APP_NAME) : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), APP_NAME));
+  return path.join(base, "local.json");
+}
+function loadLocalSettings() {
+  const file2 = localSettingsPath();
+  try {
+    return JSON.parse(fs.readFileSync(file2, "utf8"));
+  } catch (e) {
+    if (e?.code === "ENOENT") return {};
+    throw new Error(`${file2} is unreadable or not valid JSON. Fix or delete it; nothing was changed.`);
+  }
+}
 function loadSettings() {
   const file2 = settingsPath();
   let text2;
@@ -36598,11 +36613,13 @@ function loadSettings() {
     if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
     text2 = downloadFromICloudSync(file2);
   }
+  let shared;
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(text2) };
+    shared = JSON.parse(text2);
   } catch {
     throw new Error(`${file2} is not valid JSON (perhaps a half-synced iCloud copy). Fix or delete it; nothing was changed.`);
   }
+  return { ...DEFAULT_SETTINGS, ...shared, ...loadLocalSettings() };
 }
 function downloadFromICloudSync(file2, timeoutMs = 3e4) {
   try {
@@ -36617,9 +36634,19 @@ function downloadFromICloudSync(file2, timeoutMs = 3e4) {
   return fs.readFileSync(file2, "utf8");
 }
 function saveSettings(patch) {
-  const next = { ...loadSettings(), ...patch };
-  writeFileAtomic(settingsPath(), JSON.stringify(next, null, 2) + "\n");
-  return next;
+  const current = loadSettings();
+  const local = {};
+  const shared = {};
+  for (const [k, v] of Object.entries(patch)) (isLocalKey(k) ? local : shared)[k] = v;
+  if (Object.keys(shared).length) {
+    const next = { ...current, ...shared };
+    for (const k of LOCAL_KEYS) delete next[k];
+    writeFileAtomic(settingsPath(), JSON.stringify(next, null, 2) + "\n");
+  }
+  if (Object.keys(local).length) {
+    writeFileAtomic(localSettingsPath(), JSON.stringify({ ...loadLocalSettings(), ...local }, null, 2) + "\n");
+  }
+  return { ...current, ...patch };
 }
 function writeFileAtomic(file2, data) {
   fs.mkdirSync(path.dirname(file2), { recursive: true });
@@ -37499,6 +37526,9 @@ var AUTH_HEADER = "x-claude-image-gen";
 var Gallery = class {
   server;
   role;
+  /** Port the current role applies to; a galleryPort change triggers a new election. */
+  rolePort;
+  electing;
   clients = /* @__PURE__ */ new Set();
   pending = /* @__PURE__ */ new Map();
   get port() {
@@ -37508,26 +37538,43 @@ var Gallery = class {
     const q = new URLSearchParams(params).toString();
     return `http://localhost:${this.port}/${q ? `?${q}` : ""}`;
   }
-  async ping() {
+  async ping(port = this.port) {
     try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/ping`, { signal: AbortSignal.timeout(1500) });
+      const res = await fetch(`http://127.0.0.1:${port}/api/ping`, { signal: AbortSignal.timeout(1500) });
       return (await res.json()).app === APP_NAME;
     } catch {
       return false;
     }
   }
   async ensure() {
-    if (this.role === "owner") return "owner";
-    if (this.role === "remote" || await this.ping()) return this.role = "remote";
+    const port = this.port;
+    if (this.role && this.rolePort !== port) this.resign();
+    if (this.role) return this.role;
+    this.electing ??= this.elect(port).finally(() => this.electing = void 0);
+    return this.electing;
+  }
+  async elect(port) {
+    this.rolePort = port;
+    if (await this.ping(port)) return this.role = "remote";
     try {
-      await this.listen();
+      await this.listen(port);
       return this.role = "owner";
     } catch (e) {
-      if (e?.code === "EADDRINUSE" && await this.ping()) return this.role = "remote";
+      if (e?.code === "EADDRINUSE" && await this.ping(port)) return this.role = "remote";
       throw new Error(
         e?.code === "EADDRINUSE" ? `Port ${this.port} is used by another program. Change galleryPort with the image_settings tool.` : String(e)
       );
     }
+  }
+  /** Give up the current role (port changed): stop serving on the old port and disconnect its tabs. */
+  resign() {
+    if (this.server) {
+      for (const c of this.clients) c.end();
+      this.clients.clear();
+      this.server.close();
+      this.server = void 0;
+    }
+    this.role = void 0;
   }
   /** Record an event and return the gallery URL for its batch. Never throws: the gallery is optional. */
   async notify(ev) {
@@ -37575,7 +37622,7 @@ var Gallery = class {
 `;
     for (const c of this.clients) c.write(data);
   }
-  listen() {
+  listen(port) {
     return new Promise((resolve, reject) => {
       const server2 = http.createServer((req, res) => {
         this.handle(req, res).catch((e) => {
@@ -37584,7 +37631,7 @@ var Gallery = class {
         });
       });
       server2.once("error", reject);
-      server2.listen(this.port, "127.0.0.1", () => {
+      server2.listen(port, "127.0.0.1", () => {
         server2.off("error", reject);
         server2.unref();
         this.server = server2;
@@ -38135,7 +38182,8 @@ server.registerTool(
           text(
             `${Object.keys(patch).length ? "Saved. " : ""}Settings (null = API default):
 ${JSON.stringify(s, null, 2)}
-Library: ${libraryDir()}
+Library: ${libraryDir()} (settings shared by all Macs)
+This Mac only: galleryPort, openGallery (${localSettingsPath()})
 API key from: ${keySource}`
           )
         ]

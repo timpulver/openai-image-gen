@@ -49,6 +49,9 @@ const AUTH_HEADER = "x-claude-image-gen";
 class Gallery {
   private server?: http.Server;
   private role?: "owner" | "remote";
+  /** Port the current role applies to; a galleryPort change triggers a new election. */
+  private rolePort?: number;
+  private electing?: Promise<"owner" | "remote">;
   private clients = new Set<http.ServerResponse>();
   private pending = new Map<string, PendingBatch>();
 
@@ -61,9 +64,9 @@ class Gallery {
     return `http://localhost:${this.port}/${q ? `?${q}` : ""}`;
   }
 
-  private async ping(): Promise<boolean> {
+  private async ping(port = this.port): Promise<boolean> {
     try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/ping`, { signal: AbortSignal.timeout(1500) });
+      const res = await fetch(`http://127.0.0.1:${port}/api/ping`, { signal: AbortSignal.timeout(1500) });
       return (await res.json()).app === APP_NAME;
     } catch {
       return false;
@@ -71,19 +74,40 @@ class Gallery {
   }
 
   async ensure(): Promise<"owner" | "remote"> {
-    if (this.role === "owner") return "owner";
-    if (this.role === "remote" || (await this.ping())) return (this.role = "remote");
+    const port = this.port;
+    if (this.role && this.rolePort !== port) this.resign();
+    if (this.role) return this.role;
+    // Concurrent callers share one election; otherwise the second one hits EADDRINUSE on our own
+    // server and wrongly concludes it is "remote".
+    this.electing ??= this.elect(port).finally(() => (this.electing = undefined));
+    return this.electing;
+  }
+
+  private async elect(port: number): Promise<"owner" | "remote"> {
+    this.rolePort = port;
+    if (await this.ping(port)) return (this.role = "remote");
     try {
-      await this.listen();
+      await this.listen(port);
       return (this.role = "owner");
     } catch (e: any) {
-      if (e?.code === "EADDRINUSE" && (await this.ping())) return (this.role = "remote");
+      if (e?.code === "EADDRINUSE" && (await this.ping(port))) return (this.role = "remote");
       throw new Error(
         e?.code === "EADDRINUSE"
           ? `Port ${this.port} is used by another program. Change galleryPort with the image_settings tool.`
           : String(e),
       );
     }
+  }
+
+  /** Give up the current role (port changed): stop serving on the old port and disconnect its tabs. */
+  private resign(): void {
+    if (this.server) {
+      for (const c of this.clients) c.end();
+      this.clients.clear();
+      this.server.close();
+      this.server = undefined;
+    }
+    this.role = undefined;
   }
 
   /** Record an event and return the gallery URL for its batch. Never throws: the gallery is optional. */
@@ -133,7 +157,7 @@ class Gallery {
     for (const c of this.clients) c.write(data);
   }
 
-  private listen(): Promise<void> {
+  private listen(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
         this.handle(req, res).catch((e) => {
@@ -142,7 +166,7 @@ class Gallery {
         });
       });
       server.once("error", reject);
-      server.listen(this.port, "127.0.0.1", () => {
+      server.listen(port, "127.0.0.1", () => {
         server.off("error", reject);
         // Don't keep the MCP process alive just for the gallery.
         server.unref();

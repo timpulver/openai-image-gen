@@ -125,6 +125,9 @@ image's details show which method was used ("continued conversation" or "parent 
 └── settings.json                                        ← default models etc., shared by all Macs
 ```
 
+`galleryPort` and `openGallery` describe a single machine, so they're stored per Mac in
+`~/Library/Application Support/claude-image-gen/local.json` instead.
+
 - **Ids** are 4 random characters mixing letters and digits (`k7f2`), with no look-alike characters (`0/o`, `1/l/i`).
   They're random rather than sequential, so two Macs generating before iCloud syncs can't create the same id.
 - **One folder, date-prefixed names.** Finder sorts them by date, and a few thousand files in one folder is no problem.
@@ -201,4 +204,5 @@ Commit `dist/` after changing `src/`. Plugins are installed straight from git, w
   because Node.js wasn't found.
 - **Odd results or API errors**: set `CLAUDE_IMAGE_GEN_DEBUG=1` to keep OpenAI's raw responses (without the image data)
   in `~/Library/Caches/claude-image-gen/debug/`.
-- **Port 47821 is taken**: `/img:model galleryPort 47900` (or ask Claude to change `galleryPort`).
+- **Port 47821 is taken**: `/img:model galleryPort 47900` (or ask Claude to change `galleryPort`). This only affects
+  the current Mac.
