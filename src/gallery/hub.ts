@@ -111,7 +111,11 @@ class Gallery {
     return url;
   }
 
+  /** Open a gallery tab. auto=1 marks it as ours, so the page may close it when a newer one replaces it. */
   open(url: string): void {
+    const u = new URL(url);
+    u.searchParams.set("auto", "1");
+    url = u.toString();
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
     spawn(cmd, [url], { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
   }

@@ -37274,6 +37274,8 @@ var page_default = `<!doctype html>
 (() => {
   const LOADED_AT = Date.now();
   const params = new URLSearchParams(location.search);
+  // Only tabs the plugin opened (auto=1) may close themselves; never a tab the user opened.
+  const AUTO_OPENED = params.get("auto") === "1";
   const state = { q: "", starred: false, batches: [], more: false, focus: params.get("batch"), unseen: 0, detail: null };
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
@@ -37468,8 +37470,8 @@ var page_default = `<!doctype html>
     es.onmessage = (m) => {
       const ev = JSON.parse(m.data);
       if (ev.type === "newer-tab") {
-        // A newer gallery tab took over. Tabs opened by the OS \`open\` command (history length 1) may close themselves.
-        if (ev.loadedAt > LOADED_AT && history.length === 1) window.close();
+        // A newer gallery tab took over. Plugin-opened tabs the user hasn't navigated in may close themselves.
+        if (AUTO_OPENED && ev.loadedAt > LOADED_AT && history.length === 1) window.close();
         return;
       }
       if (ev.type === "batch") {
@@ -37551,7 +37553,11 @@ var Gallery = class {
     }
     return url2;
   }
+  /** Open a gallery tab. auto=1 marks it as ours, so the page may close it when a newer one replaces it. */
   open(url2) {
+    const u = new URL(url2);
+    u.searchParams.set("auto", "1");
+    url2 = u.toString();
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
     spawn(cmd, [url2], { detached: true, stdio: "ignore" }).on("error", () => {
     }).unref();
