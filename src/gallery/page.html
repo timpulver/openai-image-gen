@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Images</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23c2613a'/%3E%3Ccircle cx='11' cy='12' r='4' fill='%23fff'/%3E%3Cpath d='M4 26l8-8 5 5 4-4 7 7z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f6f5f2; --surface: #ffffff; --surface-2: #efede8; --text: #1d1c1a; --muted: #6f6b64;
+    --line: #e2dfd8; --accent: #c2613a; --accent-soft: #c2613a22; --danger: #b3261e; --star: #d99a00;
+    --radius: 12px; --shadow: 0 1px 2px #0000000d, 0 4px 16px #0000000a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --surface: #1d1d1b; --surface-2: #262624; --text: #ecebe7; --muted: #9b978f;
+      --line: #2f2e2b; --accent: #e07b52; --accent-soft: #e07b5226; --danger: #f2827a; --star: #f5c04a;
+      --shadow: 0 1px 2px #00000040, 0 4px 16px #00000033;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 14px/1.45 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  button { font: inherit; color: inherit; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  header {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px;
+    padding: 12px 24px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: #3fa45b; box-shadow: 0 0 0 3px #3fa45b33; }
+  .spacer { flex: 1; }
+  input[type=search] {
+    width: min(320px, 40vw); padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); outline: none;
+  }
+  input[type=search]:focus { border-color: var(--accent); }
+  .toggle { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; white-space: nowrap; }
+  .toggle[aria-pressed=true] { border-color: var(--star); color: var(--star); }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  .empty { color: var(--muted); text-align: center; padding: 80px 0; }
+
+  .batch { margin-bottom: 36px; scroll-margin-top: 80px; }
+  .batch.focus .grid { outline: 2px solid var(--accent); outline-offset: 8px; border-radius: var(--radius); }
+  .batch-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
+  .prompt { font-size: 15px; font-weight: 500; max-width: 900px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .meta { color: var(--muted); font-size: 12.5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); cursor: pointer; font-size: 12px; color: var(--text);
+  }
+  .chip:hover { border-color: var(--accent); }
+
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }
+  @media (max-width: 900px) { .grid { --cols: 2 !important; } }
+  @media (max-width: 520px) { .grid { --cols: 1 !important; } main, header { padding-left: 16px; padding-right: 16px; } }
+
+  .tile {
+    position: relative; border-radius: var(--radius); overflow: hidden; background: var(--surface-2);
+    box-shadow: var(--shadow); aspect-ratio: var(--ar, 1); cursor: zoom-in;
+  }
+  .tile img { width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity .35s; }
+  .tile img.loaded { opacity: 1; }
+  .tile.checker { background-color: var(--surface-2); background-image:
+    linear-gradient(45deg, #8881 25%, transparent 25%), linear-gradient(-45deg, #8881 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #8881 75%), linear-gradient(-45deg, transparent 75%, #8881 75%);
+    background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0; }
+  .tile.pending { cursor: default; }
+  .tile.pending::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--accent) 14%, transparent) 50%, transparent 80%);
+    background-size: 220% 100%; animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+  .tile .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; color: var(--muted); }
+  .tile.error { cursor: default; aspect-ratio: auto; min-height: 180px; }
+  .tile.error .center { color: var(--danger); font-size: 12.5px; }
+  .overlay {
+    position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center;
+    padding: 8px; background: linear-gradient(transparent, #0000008c); opacity: 0; transition: opacity .15s;
+  }
+  .tile:hover .overlay, .tile .overlay.show { opacity: 1; }
+  .idtag {
+    font: 600 12.5px ui-monospace, Menlo, monospace; color: #fff; background: #0000008c; padding: 3px 8px; border-radius: 999px;
+    border: 0; cursor: copy;
+  }
+  .star { border: 0; background: #0000008c; color: #fff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 15px; line-height: 1; }
+  .star.on { color: var(--star); }
+  .tile .badge-star { position: absolute; top: 8px; right: 8px; color: var(--star); text-shadow: 0 1px 3px #0008; }
+  .more { display: block; margin: 0 auto; }
+
+  dialog {
+    width: min(1500px, 96vw); height: min(940px, 92vh); padding: 0; border: 1px solid var(--line); border-radius: 16px;
+    background: var(--surface); color: var(--text); box-shadow: 0 20px 60px #0006;
+  }
+  dialog::backdrop { background: #000b; }
+  .detail { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100%; }
+  @media (max-width: 900px) { .detail { grid-template-columns: 1fr; grid-template-rows: 55% 45%; } }
+  .stage { position: relative; display: grid; place-items: center; background: var(--surface-2); min-height: 0; }
+  .stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .nav { position: absolute; top: 50%; transform: translateY(-50%); border: 0; background: #0007; color: #fff; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 18px; }
+  .nav.prev { left: 12px; } .nav.next { right: 12px; }
+  aside { overflow-y: auto; padding: 20px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; }
+  aside h2 { margin: 0; font: 600 20px ui-monospace, Menlo, monospace; display: flex; align-items: center; gap: 10px; }
+  aside h3 { margin: 0 0 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  aside p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .refs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .refs img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; }
+  .close { position: absolute; top: 12px; right: 12px; z-index: 2; border: 0; background: #0007; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 16px; }
+  .btn { font: 500 13px/1.3 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0; transition: all .2s;
+    background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 999px; pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="dot" title="Live connection"></span>Claude Images</h1>
+  <div class="spacer"></div>
+  <input type="search" id="q" placeholder="Search prompts or ids" autocomplete="off">
+  <button class="toggle" id="starred" aria-pressed="false">★ Starred</button>
+</header>
+<main>
+  <div id="feed"></div>
+  <div class="empty" id="empty" hidden>No images yet. Ask Claude for one: <code>/img:new a lighthouse at dusk</code></div>
+  <button class="toggle more" id="more" hidden>Load more</button>
+</main>
+<dialog id="dlg"></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const LOADED_AT = Date.now();
+  const params = new URLSearchParams(location.search);
+  const state = { q: "", starred: false, batches: [], more: false, focus: params.get("batch"), unseen: 0, detail: null };
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else if (k === "style") n.style.cssText = v;
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const k of kids.flat()) if (k != null) n.append(k);
+    return n;
+  };
+  const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 1400); };
+  const copy = (text, label) => navigator.clipboard.writeText(text).then(() => toast(label || ("Copied " + text)));
+  const ago = (iso) => {
+    const s = (Date.now() - Date.parse(iso)) / 1000;
+    if (s < 60) return "just now";
+    if (s < 3600) return Math.floor(s / 60) + " min ago";
+    if (s < 86400) return Math.floor(s / 3600) + " h ago";
+    return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  };
+  const post = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "x-claude-image-gen": "1" }, body: JSON.stringify(body) }).then((r) => r.json());
+
+  async function load(append) {
+    const p = new URLSearchParams({ limit: "30" });
+    if (state.q) p.set("q", state.q);
+    if (state.starred) p.set("starred", "1");
+    if (append && state.batches.length) p.set("before", state.batches[state.batches.length - 1].createdAt);
+    const data = await fetch("/api/feed?" + p).then((r) => r.json());
+    state.batches = append ? state.batches.concat(data.batches) : data.batches;
+    state.more = data.more;
+    render();
+  }
+
+  // Keyed rendering: only tiles whose status changed are rebuilt, so finished images never flicker.
+  const tileKey = (item) => item.id + ":" + item.status + ":" + (item.record && item.record.starred ? 1 : 0);
+  function render() {
+    const feed = $("feed");
+    const existing = new Map([...feed.children].map((n) => [n.dataset.batch, n]));
+    let prev = null;
+    for (const b of state.batches) {
+      let sec = existing.get(b.batch);
+      if (!sec) sec = buildBatch(b);
+      else { existing.delete(b.batch); updateBatch(sec, b); }
+      if (prev ? prev.nextSibling !== sec : feed.firstChild !== sec) feed.insertBefore(sec, prev ? prev.nextSibling : feed.firstChild);
+      prev = sec;
+    }
+    for (const n of existing.values()) n.remove();
+    $("empty").hidden = state.batches.length > 0;
+    $("more").hidden = !state.more;
+    if (state.focus) {
+      const f = feed.querySelector('[data-batch="' + state.focus + '"]');
+      if (f) { f.classList.add("focus"); f.scrollIntoView({ block: "start", behavior: "smooth" }); state.focus = null; }
+    }
+  }
+
+  function buildBatch(b) {
+    const grid = el("div", { class: "grid" });
+    const sec = el("section", { class: "batch", "data-batch": b.batch },
+      el("div", { class: "batch-head" },
+        el("div", { class: "prompt", title: b.prompt }, b.prompt),
+        el("div", { class: "meta" },
+          el("span", { class: "when", "data-iso": b.createdAt }, ago(b.createdAt)),
+          b.parent ? el("button", { class: "chip", title: "Refined from " + b.parent, onclick: () => openDetail(b.parent) }, "↳ from ", el("span", { class: "mono" }, b.parent)) : null,
+          el("span", {}, b.imageModel))),
+      grid);
+    updateBatch(sec, b);
+    return sec;
+  }
+
+  function updateBatch(sec, b) {
+    const grid = sec.querySelector(".grid");
+    grid.style.setProperty("--cols", b.items.length >= 4 ? "4" : "3");
+    const tiles = new Map([...grid.children].map((n) => [n.dataset.id, n]));
+    let prev = null;
+    for (const item of b.items) {
+      let t = tiles.get(item.id);
+      if (!t || t.dataset.key !== tileKey(item)) {
+        const fresh = buildTile(item, b);
+        if (t) t.replaceWith(fresh);
+        t = fresh;
+      }
+      tiles.delete(item.id);
+      if (prev ? prev.nextSibling !== t : grid.firstChild !== t) grid.insertBefore(t, prev ? prev.nextSibling : grid.firstChild);
+      prev = t;
+    }
+    for (const n of tiles.values()) n.remove();
+  }
+
+  function buildTile(item, b) {
+    const r = item.record;
+    const ar = r && r.width && r.height ? r.width + "/" + r.height : "1";
+    const t = el("div", { class: "tile " + item.status, "data-id": item.id, "data-key": tileKey(item), style: "--ar:" + ar });
+    if (item.status === "pending") {
+      const timer = el("span", {}, "");
+      const start = Date.parse(b.createdAt);
+      const tick = () => { if (!t.isConnected && t.dataset.started) return; t.dataset.started = "1"; timer.textContent = Math.max(0, Math.round((Date.now() - start) / 1000)) + "s"; setTimeout(tick, 1000); };
+      tick();
+      t.append(el("div", { class: "center" }, el("div", {}, el("div", { class: "mono", style: "font-size:15px;font-weight:600;color:var(--text)" }, item.id), el("div", {}, "generating… ", timer))));
+      return t;
+    }
+    if (item.status === "error") {
+      t.append(el("div", { class: "center" }, el("div", {}, el("div", { class: "mono", style: "font-weight:600" }, item.id), item.message || "Failed")));
+      return t;
+    }
+    if (r.params && r.params.background === "transparent") t.classList.add("checker");
+    const img = el("img", { src: "/thumb/" + item.id, alt: r.prompt, loading: "lazy", decoding: "async" });
+    img.addEventListener("load", () => img.classList.add("loaded"));
+    t.append(img);
+    if (r.starred) t.append(el("span", { class: "badge-star" }, "★"));
+    t.append(el("div", { class: "overlay" },
+      el("button", { class: "idtag", title: "Copy id", onclick: (e) => { e.stopPropagation(); copy(item.id); } }, item.id),
+      el("button", { class: "star" + (r.starred ? " on" : ""), title: r.starred ? "Unstar" : "Star", onclick: (e) => { e.stopPropagation(); toggleStar(item.id, !r.starred); } }, r.starred ? "★" : "☆")));
+    t.addEventListener("click", () => openDetail(item.id, b));
+    return t;
+  }
+
+  async function toggleStar(id, on) {
+    await post("/api/star", { id, starred: on });
+    toast(on ? "Starred " + id : "Unstarred " + id);
+  }
+
+  async function openDetail(id, batch) {
+    const res = await fetch("/api/image/" + id);
+    if (!res.ok) return toast("Image " + id + " not found");
+    const { record: r, path, children } = await res.json();
+    const siblings = (batch && batch.items.filter((i) => i.status === "done").map((i) => i.id)) || [id];
+    const idx = siblings.indexOf(id);
+    state.detail = { id, batch };
+    const dlg = $("dlg");
+    const row = (k, v) => v ? [el("dt", {}, k), el("dd", {}, v)] : [];
+    const refEls = (r.refs || []).map((ref) => ref.kind === "library"
+      ? el("img", { src: "/thumb/" + ref.stored, title: "Library image " + ref.stored, onclick: () => openDetail(ref.stored) })
+      : el("img", { src: "/input/" + ref.stored, title: ref.source }));
+    dlg.replaceChildren(
+      el("div", { class: "detail" },
+        el("div", { class: "stage" + (r.params && r.params.background === "transparent" ? " checker" : "") },
+          el("button", { class: "close", title: "Close (Esc)", onclick: () => dlg.close() }, "✕"),
+          el("img", { src: "/file/" + r.id, alt: r.prompt }),
+          siblings.length > 1 ? el("button", { class: "nav prev", title: "Previous (←)", onclick: () => openDetail(siblings[(idx - 1 + siblings.length) % siblings.length], batch) }, "‹") : null,
+          siblings.length > 1 ? el("button", { class: "nav next", title: "Next (→)", onclick: () => openDetail(siblings[(idx + 1) % siblings.length], batch) }, "›") : null),
+        el("aside", {},
+          el("h2", {}, r.id,
+            el("button", { class: "btn", onclick: () => copy(r.id) }, "Copy id"),
+            el("button", { class: "btn", onclick: async () => { await toggleStar(r.id, !r.starred); openDetail(r.id, batch); } }, r.starred ? "★ Starred" : "☆ Star")),
+          el("div", {}, el("h3", {}, "Prompt"), el("p", {}, r.prompt)),
+          r.revisedPrompt && r.revisedPrompt !== r.prompt ? el("div", {}, el("h3", {}, "Revised prompt"), el("p", { style: "color:var(--muted)" }, r.revisedPrompt)) : null,
+          r.parent || children.length ? el("div", {}, el("h3", {}, "Lineage"), el("div", { class: "chips" },
+            r.parent ? el("button", { class: "chip", onclick: () => openDetail(r.parent) }, "↑ parent ", el("span", { class: "mono" }, r.parent)) : null,
+            children.map((c) => el("button", { class: "chip", onclick: () => openDetail(c) }, "↓ ", el("span", { class: "mono" }, c))))) : null,
+          refEls.length ? el("div", {}, el("h3", {}, "References"), el("div", { class: "refs" }, refEls)) : null,
+          el("div", {}, el("h3", {}, "Details"), el("dl", { class: "kv" },
+            row("Created", new Date(r.createdAt).toLocaleString()),
+            row("Size", r.width ? r.width + " × " + r.height : r.params.size),
+            row("Image model", r.imageModel),
+            row("Mainline", r.mainlineModel),
+            row("Quality", r.params.quality),
+            row("Background", r.params.background),
+            row("Context", { none: "new image", previous_response: "continued conversation", parent_image: "parent image re-uploaded" }[r.context]),
+            row("Machine", r.machine),
+            row("Project", r.cwd))),
+          el("div", { class: "chips" },
+            el("button", { class: "btn", onclick: () => copy(path, "Copied file path") }, "Copy file path"),
+            el("button", { class: "btn", onclick: () => copy("img:" + r.id, "Copied reference img:" + r.id) }, "Copy reference")))));
+    if (!dlg.open) dlg.showModal();
+  }
+
+  $("dlg").addEventListener("click", (e) => { if (e.target === $("dlg")) $("dlg").close(); });
+  document.addEventListener("keydown", (e) => {
+    if (!$("dlg").open) return;
+    if (e.key === "ArrowRight") $("dlg").querySelector(".nav.next")?.click();
+    if (e.key === "ArrowLeft") $("dlg").querySelector(".nav.prev")?.click();
+  });
+
+  let qTimer;
+  $("q").addEventListener("input", (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value.trim(); load(); }, 200); });
+  $("starred").addEventListener("click", () => { state.starred = !state.starred; $("starred").setAttribute("aria-pressed", String(state.starred)); load(); });
+  $("more").addEventListener("click", () => load(true));
+  setInterval(() => document.querySelectorAll(".when").forEach((n) => (n.textContent = ago(n.dataset.iso))), 30_000);
+
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { state.unseen = 0; document.title = "Claude Images"; } });
+
+  let reloadTimer;
+  const scheduleReload = () => { clearTimeout(reloadTimer); reloadTimer = setTimeout(() => load(), 120); };
+
+  function connect() {
+    const es = new EventSource("/events?loadedAt=" + LOADED_AT);
+    es.onopen = () => { $("dot").classList.add("live"); load(); };
+    es.onerror = () => $("dot").classList.remove("live");
+    es.onmessage = (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.type === "newer-tab") {
+        // A newer gallery tab took over. Tabs opened by the OS `open` command (history length 1) may close themselves.
+        if (ev.loadedAt > LOADED_AT && history.length === 1) window.close();
+        return;
+      }
+      if (ev.type === "batch") {
+        state.focus = ev.batch;
+        history.replaceState(null, "", "?batch=" + ev.batch);
+      }
+      if (ev.type === "image" && document.hidden) { state.unseen++; document.title = "(" + state.unseen + ") Claude Images"; }
+      if (ev.type === "image" || ev.type === "error" || ev.type === "batch" || ev.type === "updated") scheduleReload();
+      if (ev.type === "updated" && state.detail && state.detail.id === ev.id && $("dlg").open) openDetail(ev.id, state.detail.batch);
+    };
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "img",
+  "version": "0.1.0",
+  "description": "OpenAI image generation for Claude Code: iterate on images across turns, pass pasted images and files as references, live local gallery, permanent iCloud-synced library.",
+  "author": {
+    "name": "Tim Pulver"
+  },
+  "repository": "https://github.com/timpulver/openai-image-gen",
+  "license": "MIT",
+  "keywords": ["image-generation", "openai", "gpt-image", "mcp", "gallery"]
+}

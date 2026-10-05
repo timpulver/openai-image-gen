@@ -1,0 +1,13 @@
+{
+  "name": "timpulver",
+  "owner": {
+    "name": "Tim Pulver"
+  },
+  "plugins": [
+    {
+      "name": "img",
+      "source": "./",
+      "description": "OpenAI image generation with iteration, references, a live gallery and an iCloud-synced library."
+    }
+  ]
+}
