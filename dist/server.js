@@ -36720,12 +36720,27 @@ var NAME_RE = /^(\d{4}-\d{2}-\d{2})-([a-z2-9]{4})(?:-[^.]*)?\.([a-z0-9]+)$/;
 function realName(entry) {
   return entry.startsWith(".") && entry.endsWith(".icloud") ? entry.slice(1, -".icloud".length) : entry;
 }
-function listEntries() {
+var cachedIndex;
+function dirIndex() {
+  const dir = imagesDir();
+  let mtimeMs;
   try {
-    return fs2.readdirSync(imagesDir()).map(realName);
+    mtimeMs = fs2.statSync(dir).mtimeMs;
   } catch {
-    return [];
+    return { dir, mtimeMs: -1, entries: [], sidecars: /* @__PURE__ */ new Map() };
   }
+  if (cachedIndex?.dir === dir && cachedIndex.mtimeMs === mtimeMs) return cachedIndex;
+  const entries = fs2.readdirSync(dir);
+  const sidecars = /* @__PURE__ */ new Map();
+  for (const e of entries) {
+    const name = realName(e);
+    const m = NAME_RE.exec(name);
+    if (m && m[3] === "json") sidecars.set(m[2], [...sidecars.get(m[2]) ?? [], name]);
+  }
+  return cachedIndex = { dir, mtimeMs, entries, sidecars };
+}
+function listEntries() {
+  return dirIndex().entries.map(realName);
 }
 var reserved = /* @__PURE__ */ new Set();
 function newIds(count) {
@@ -36780,14 +36795,8 @@ function requestDownload(file2) {
   });
 }
 function allRecords() {
-  let entries;
-  try {
-    entries = fs2.readdirSync(imagesDir());
-  } catch {
-    return [];
-  }
   const out = [];
-  for (const entry of entries) {
+  for (const entry of dirIndex().entries) {
     if (entry.endsWith(".json.icloud")) {
       requestDownload(path2.join(imagesDir(), realName(entry)));
       continue;
@@ -36799,11 +36808,7 @@ function allRecords() {
   return out.sort((a, b) => a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.batchIndex - b.batchIndex);
 }
 function jsonNameFor(id) {
-  for (const e of listEntries()) {
-    const m = NAME_RE.exec(e);
-    if (m && m[2] === id && m[3] === "json") return e;
-  }
-  return void 0;
+  return dirIndex().sidecars.get(id)?.[0];
 }
 async function getRecord(id) {
   const name = jsonNameFor(id);

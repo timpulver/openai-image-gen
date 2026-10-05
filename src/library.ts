@@ -75,12 +75,42 @@ function realName(entry: string): string {
   return entry.startsWith(".") && entry.endsWith(".icloud") ? entry.slice(1, -".icloud".length) : entry;
 }
 
-function listEntries(): string[] {
+interface DirIndex {
+  dir: string;
+  mtimeMs: number;
+  /** Raw directory entries (including iCloud placeholders). */
+  entries: string[];
+  /** id -> sidecar file names (real names, placeholders resolved). */
+  sidecars: Map<string, string[]>;
+}
+let cachedIndex: DirIndex | undefined;
+
+/**
+ * The images/ listing, re-read only when the directory's mtime changes (adding,
+ * removing or renaming a file updates it; editing a sidecar in place doesn't
+ * need to). Saves a full readdir per lookup: the gallery resolves every tile by id.
+ */
+function dirIndex(): DirIndex {
+  const dir = imagesDir();
+  let mtimeMs: number;
   try {
-    return fs.readdirSync(imagesDir()).map(realName);
+    mtimeMs = fs.statSync(dir).mtimeMs;
   } catch {
-    return [];
+    return { dir, mtimeMs: -1, entries: [], sidecars: new Map() };
   }
+  if (cachedIndex?.dir === dir && cachedIndex.mtimeMs === mtimeMs) return cachedIndex;
+  const entries = fs.readdirSync(dir);
+  const sidecars = new Map<string, string[]>();
+  for (const e of entries) {
+    const name = realName(e);
+    const m = NAME_RE.exec(name);
+    if (m && m[3] === "json") sidecars.set(m[2], [...(sidecars.get(m[2]) ?? []), name]);
+  }
+  return (cachedIndex = { dir, mtimeMs, entries, sidecars });
+}
+
+function listEntries(): string[] {
+  return dirIndex().entries.map(realName);
 }
 
 const reserved = new Set<string>();
@@ -165,14 +195,8 @@ function requestDownload(file: string): void {
 
 /** All records, newest first. Sidecars that iCloud offloaded are requested and skipped this time. */
 export function allRecords(): ImageRecord[] {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(imagesDir());
-  } catch {
-    return [];
-  }
   const out: ImageRecord[] = [];
-  for (const entry of entries) {
+  for (const entry of dirIndex().entries) {
     if (entry.endsWith(".json.icloud")) {
       requestDownload(path.join(imagesDir(), realName(entry)));
       continue;
@@ -185,11 +209,7 @@ export function allRecords(): ImageRecord[] {
 }
 
 function jsonNameFor(id: string): string | undefined {
-  for (const e of listEntries()) {
-    const m = NAME_RE.exec(e);
-    if (m && m[2] === id && m[3] === "json") return e;
-  }
-  return undefined;
+  return dirIndex().sidecars.get(id)?.[0];
 }
 
 export async function getRecord(id: string): Promise<ImageRecord | undefined> {
