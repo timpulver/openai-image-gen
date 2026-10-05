@@ -36744,6 +36744,13 @@ function readRecordSync(jsonName) {
     return void 0;
   }
 }
+var downloadRequested = /* @__PURE__ */ new Set();
+function requestDownload(file2) {
+  if (downloadRequested.has(file2)) return;
+  downloadRequested.add(file2);
+  execFile("brctl", ["download", file2], () => {
+  });
+}
 function allRecords() {
   let entries;
   try {
@@ -36754,8 +36761,7 @@ function allRecords() {
   const out = [];
   for (const entry of entries) {
     if (entry.endsWith(".json.icloud")) {
-      execFile("brctl", ["download", path2.join(imagesDir(), realName(entry))], () => {
-      });
+      requestDownload(path2.join(imagesDir(), realName(entry)));
       continue;
     }
     if (!entry.endsWith(".json") || entry.startsWith(".")) continue;

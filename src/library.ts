@@ -152,6 +152,15 @@ function readRecordSync(jsonName: string): ImageRecord | undefined {
   }
 }
 
+const downloadRequested = new Set<string>();
+
+/** Ask iCloud for an offloaded file once per process (the feed reloads often; brctl is a process spawn). */
+function requestDownload(file: string): void {
+  if (downloadRequested.has(file)) return;
+  downloadRequested.add(file);
+  execFile("brctl", ["download", file], () => {});
+}
+
 /** All records, newest first. Sidecars that iCloud offloaded are requested and skipped this time. */
 export function allRecords(): ImageRecord[] {
   let entries: string[];
@@ -163,7 +172,7 @@ export function allRecords(): ImageRecord[] {
   const out: ImageRecord[] = [];
   for (const entry of entries) {
     if (entry.endsWith(".json.icloud")) {
-      execFile("brctl", ["download", path.join(imagesDir(), realName(entry))], () => {});
+      requestDownload(path.join(imagesDir(), realName(entry)));
       continue;
     }
     if (!entry.endsWith(".json") || entry.startsWith(".")) continue;
