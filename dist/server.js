@@ -36808,7 +36808,10 @@ function allRecords() {
   return out.sort((a, b) => a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.batchIndex - b.batchIndex);
 }
 function jsonNameFor(id) {
-  return dirIndex().sidecars.get(id)?.[0];
+  const names = dirIndex().sidecars.get(id);
+  if (names && names.length > 1)
+    throw new Error(`Image id "${id}" exists more than once: ${names.join(", ")}. Rename one of the files (both .json and image) to a new id.`);
+  return names?.[0];
 }
 async function getRecord(id) {
   const name = jsonNameFor(id);

@@ -271,6 +271,16 @@ try {
   await call("generate_images", { prompt: "back on the first port", show: false }); // re-elects on the old port
   ok("changing galleryPort moves the gallery");
 
+  // Same id created on two Macs before syncing: report it, don't pick one.
+  const dup = sidecar(c);
+  const twin = dup.file.replace(`-${c}-`, `-${c}-other-mac-`);
+  fs.copyFileSync(dup.file, twin);
+  r = await call("inspect_image", { id: c });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /exists more than once/);
+  fs.rmSync(twin);
+  ok("duplicate ids are reported, not resolved arbitrarily");
+
   // A file deleted behind the server's back must give a 404, not crash the MCP server.
   fs.rmSync(sidecar(b).file.replace(".json", ".png"));
   assert.equal((await fetch(`${base}/file/${b}`)).status, 404);

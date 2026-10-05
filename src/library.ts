@@ -209,7 +209,11 @@ export function allRecords(): ImageRecord[] {
 }
 
 function jsonNameFor(id: string): string | undefined {
-  return dirIndex().sidecars.get(id)?.[0];
+  const names = dirIndex().sidecars.get(id);
+  // Two Macs can (very rarely) pick the same id before iCloud syncs. Never guess which one is meant.
+  if (names && names.length > 1)
+    throw new Error(`Image id "${id}" exists more than once: ${names.join(", ")}. Rename one of the files (both .json and image) to a new id.`);
+  return names?.[0];
 }
 
 export async function getRecord(id: string): Promise<ImageRecord | undefined> {

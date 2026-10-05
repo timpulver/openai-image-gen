@@ -129,7 +129,8 @@ image's details show which method was used ("continued conversation" or "parent 
 `~/Library/Application Support/claude-image-gen/local.json` instead.
 
 - **Ids** are 4 random characters mixing letters and digits (`k7f2`), with no look-alike characters (`0/o`, `1/l/i`).
-  They're random rather than sequential, so two Macs generating before iCloud syncs can't create the same id.
+  They're random rather than sequential, so two Macs generating before iCloud syncs practically never create the same
+  id. If it ever happens, using that id reports both files instead of picking one.
 - **One folder, date-prefixed names.** Finder sorts them by date, and a few thousand files in one folder is no problem.
 - **Each image has its own JSON sidecar and there is no shared index file.** iCloud handles concurrent edits to a
   single file by creating `file 2.json` conflict copies, so the server never keeps one.
