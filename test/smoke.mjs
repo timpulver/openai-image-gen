@@ -346,6 +346,26 @@ try {
   }
   ok("a blocked iCloud library explains the macOS permission instead of looking empty");
 
+  // Same for a reference in a folder macOS guards per app (~/Downloads etc.); HOME points at the test root.
+  const blockedRef = path.join(root, "Downloads", "blocked.png");
+  fs.mkdirSync(path.dirname(blockedRef), { recursive: true });
+  fs.writeFileSync(blockedRef, gradientPng(16, 16));
+  fs.chmodSync(blockedRef, 0o000);
+  const client5 = new Client({ name: "smoke5", version: "1" });
+  await client5.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve("dist/server.js")], cwd: proj,
+    env: { ...process.env, HOME: root, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_LOCAL_CONFIG: path.join(root, "local"),
+      CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache5"), CLAUDE_IMAGE_GEN_API_BASE: mock.url, OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN: "test-key" },
+    stderr: "inherit" }));
+  try {
+    const res = await client5.callTool({ name: "generate_images", arguments: { prompt: "x", refs: [blockedRef], show: false } });
+    assert.equal(res.isError, true);
+    assert.match(res.content[0].text, /blocked access to the Downloads folder.*Files & Folders \(Downloads Folder\).*paste:N/s);
+  } finally {
+    await client5.close();
+    fs.chmodSync(blockedRef, 0o644);
+  }
+  ok("a reference in a blocked ~/Downloads explains the macOS permission and suggests paste:N");
+
   // A file deleted behind the server's back must give a 404, not crash the MCP server.
   fs.rmSync(sidecar(b).file.replace(".json", ".png"));
   assert.equal((await fetch(`${base}/file/${b}`)).status, 404);

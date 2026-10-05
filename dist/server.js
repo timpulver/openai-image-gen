@@ -17145,11 +17145,20 @@ function saveSettings(patch) {
 	};
 }
 /**
-* macOS privacy controls (TCC) can block the app running Claude Code from iCloud Drive; the
-* raw EPERM says nothing about how to fix that.
+* macOS privacy controls (TCC) can block the app running Claude Code from iCloud Drive and from
+* ~/Desktop, ~/Documents and ~/Downloads; the raw EPERM says nothing about how to fix that.
 */
 function explainFsError(e, file) {
-	if ((e?.code === "EPERM" || e?.code === "EACCES") && file.includes("/Library/Mobile Documents/")) return /* @__PURE__ */ new Error(`macOS blocked access to iCloud Drive (${file}). Allow the app that runs Claude Code (Terminal, iTerm, VS Code, ...) in System Settings > Privacy & Security > Files & Folders (iCloud Drive) or Full Disk Access, then restart it. Or set CLAUDE_IMAGE_GEN_LIBRARY to a folder outside iCloud Drive.`);
+	if (e?.code === "EPERM" || e?.code === "EACCES") {
+		const allow = (place) => `Allow the app that runs Claude Code (Terminal, iTerm, VS Code, ...) in System Settings > Privacy & Security > Files & Folders (${place}) or Full Disk Access, then restart it.`;
+		if (file.includes("/Library/Mobile Documents/")) return /* @__PURE__ */ new Error(`macOS blocked access to iCloud Drive (${file}). ${allow("iCloud Drive")} Or set CLAUDE_IMAGE_GEN_LIBRARY to a folder outside iCloud Drive.`);
+		const top = path.relative(os.homedir(), file).split(path.sep)[0];
+		if ([
+			"Desktop",
+			"Documents",
+			"Downloads"
+		].includes(top)) return /* @__PURE__ */ new Error(`macOS blocked access to the ${top} folder (${file}). ${allow(`${top} Folder`)} Or have the user copy the file to another folder. If the user pasted this image, pass "paste:N" instead.`);
+	}
 	return e instanceof Error ? e : new Error(String(e));
 }
 /** Write via temp file + rename so iCloud never syncs a half-written file. */
@@ -18023,7 +18032,9 @@ async function resolveRef(ref) {
 	const file = path.resolve(projectDir(), expandHome(raw.replace(/^file:\/\//, "")));
 	if (!fs.existsSync(file)) throw new Error(`Reference not found: ${raw} (looked for ${file})`);
 	if (!isSupportedInput(file)) throw new Error(`Unsupported reference image type: ${file}`);
-	const { data, ext } = await toUploadable(file);
+	const { data, ext } = await toUploadable(file).catch((e) => {
+		throw explainFsError(e, file);
+	});
 	return {
 		record: {
 			kind: "file",

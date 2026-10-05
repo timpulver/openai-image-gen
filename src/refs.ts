@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expandHome, inputsDir, projectDir, writeFileAtomic } from "./config.js";
+import { expandHome, explainFsError, inputsDir, projectDir, writeFileAtomic } from "./config.js";
 import { MIME, isSupportedInput, toUploadable } from "./images.js";
 import { RefRecord, ensureLocal, imagePath, isImageId, resolveOne } from "./library.js";
 
@@ -59,7 +59,9 @@ export async function resolveRef(ref: string): Promise<ResolvedRef> {
   const file = path.resolve(projectDir(), expandHome(raw.replace(/^file:\/\//, "")));
   if (!fs.existsSync(file)) throw new Error(`Reference not found: ${raw} (looked for ${file})`);
   if (!isSupportedInput(file)) throw new Error(`Unsupported reference image type: ${file}`);
-  const { data, ext } = await toUploadable(file);
+  const { data, ext } = await toUploadable(file).catch((e) => {
+    throw explainFsError(e, file);
+  });
   return { record: { kind: "file", source: file, stored: storeInput(data, ext) }, dataUrl: dataUrl(data, ext) };
 }
 
