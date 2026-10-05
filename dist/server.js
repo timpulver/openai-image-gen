@@ -37326,7 +37326,8 @@ var page_default = `<!doctype html>
     $("empty").hidden = state.batches.length > 0;
     $("more").hidden = !state.more;
     if (state.focus) {
-      const f = feed.querySelector('[data-batch="' + state.focus + '"]');
+      // Look the batch up directly: a selector built from the URL would throw on quotes or brackets.
+      const f = [...feed.children].find((n) => n.dataset.batch === state.focus);
       if (f) { f.classList.add("focus"); f.scrollIntoView({ block: "start", behavior: "smooth" }); state.focus = null; }
     }
   }
