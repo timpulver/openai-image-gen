@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/server.js --loader:.html=text --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "build": "rolldown -c rolldown.config.ts",
     "typecheck": "tsc --noEmit",
     "gallery": "node dist/server.js --gallery",
     "test": "node test/smoke.mjs"
@@ -22,7 +22,7 @@
     "@modelcontextprotocol/client": "^2.3.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/node": "^26.6.4",
-    "esbuild": "^0.28.2",
+    "rolldown": "^1.2.12",
     "typescript": "^7.0.2"
   }
 }
