@@ -99,7 +99,13 @@ try {
   }
   ok("protocol: 7 tools via the 2026-07-28 client; a 2025-era client (initialize handshake) also works");
 
-  let r = await call("image_settings", { galleryPort: port, openGallery: false, quality: "low" });
+  // Machine-local settings alone (a fresh library has no settings.json yet) must still be read back.
+  let r = await call("image_settings", { galleryPort: port, openGallery: false });
+  assert.ok(!fs.existsSync(path.join(lib, "settings.json")), "local-only changes don't create the shared file");
+  r = await call("image_settings");
+  assert.match(r.text, new RegExp(`"galleryPort": ${port}`), "local.json applies before any shared setting exists");
+  assert.match(r.text, /"openGallery": false/);
+  r = await call("image_settings", { quality: "low" });
   assert.match(r.text, new RegExp(`"galleryPort": ${port}`));
   const shared = JSON.parse(fs.readFileSync(path.join(lib, "settings.json"), "utf8"));
   assert.equal(shared.quality, "low");

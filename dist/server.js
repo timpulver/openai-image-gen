@@ -17087,6 +17087,13 @@ function loadLocalSettings() {
 * user's real settings with those defaults.
 */
 function loadSettings() {
+	return {
+		...DEFAULT_SETTINGS,
+		...loadSharedSettings(),
+		...loadLocalSettings()
+	};
+}
+function loadSharedSettings() {
 	const file = settingsPath();
 	let text;
 	try {
@@ -17094,20 +17101,14 @@ function loadSettings() {
 	} catch (e) {
 		if (e?.code !== "ENOENT") throw explainFsError(e, file);
 		const placeholder = path.join(path.dirname(file), `.${path.basename(file)}.icloud`);
-		if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
+		if (!fs.existsSync(placeholder)) return {};
 		text = downloadFromICloudSync(file);
 	}
-	let shared;
 	try {
-		shared = JSON.parse(text);
+		return JSON.parse(text);
 	} catch {
 		throw new Error(`${file} is not valid JSON (perhaps a half-synced iCloud copy). Fix or delete it; nothing was changed.`);
 	}
-	return {
-		...DEFAULT_SETTINGS,
-		...shared,
-		...loadLocalSettings()
-	};
 }
 /** Older macOS versions offload files as ".name.icloud" placeholders; fetch one synchronously. */
 function downloadFromICloudSync(file, timeoutMs = 3e4) {

@@ -105,23 +105,26 @@ function loadLocalSettings(): Partial<Settings> {
  * user's real settings with those defaults.
  */
 export function loadSettings(): Settings {
+  return { ...DEFAULT_SETTINGS, ...loadSharedSettings(), ...loadLocalSettings() };
+}
+
+function loadSharedSettings(): Partial<Settings> {
   const file = settingsPath();
   let text: string;
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (e: any) {
     if (e?.code !== "ENOENT") throw explainFsError(e, file);
+    // No settings.json yet is normal: changing only galleryPort/openGallery never creates it.
     const placeholder = path.join(path.dirname(file), `.${path.basename(file)}.icloud`);
-    if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
+    if (!fs.existsSync(placeholder)) return {};
     text = downloadFromICloudSync(file);
   }
-  let shared: Partial<Settings>;
   try {
-    shared = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     throw new Error(`${file} is not valid JSON (perhaps a half-synced iCloud copy). Fix or delete it; nothing was changed.`);
   }
-  return { ...DEFAULT_SETTINGS, ...shared, ...loadLocalSettings() };
 }
 
 /** Older macOS versions offload files as ".name.icloud" placeholders; fetch one synchronously. */
