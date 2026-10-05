@@ -69,7 +69,7 @@ In Claude Code:
 Choose **user scope** so it's available in every project. To get updates later, run
 `/plugin marketplace update timpulver`.
 
-You need Node.js ≥ 20. The launcher also finds Homebrew, nvm, volta, fnm and vite-plus installs when Claude Code was
+You need Node.js ≥ 20.19 (any 22 or 24 works). The launcher also finds Homebrew, nvm, volta, fnm and vite-plus installs when Claude Code was
 started without your shell's `PATH`.
 
 ### 4. Optional: a bare `/img` shortcut
