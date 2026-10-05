@@ -7,5 +7,22 @@
   },
   "repository": "https://github.com/timpulver/openai-image-gen",
   "license": "MIT",
-  "keywords": ["image-generation", "openai", "gpt-image", "mcp", "gallery"]
+  "keywords": [
+    "image-generation",
+    "openai",
+    "gpt-image",
+    "mcp",
+    "gallery"
+  ],
+  "mcpServers": {
+    "images": {
+      "command": "sh",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bin/run.sh"
+      ],
+      "env": {
+        "CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR:-}"
+      }
+    }
+  }
 }
