@@ -196,11 +196,6 @@ export async function generate(
   }
 }
 
-export function fileSize(file: string): string {
-  const bytes = fs.statSync(file).size;
-  return bytes > 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
-}
-
 /** CLAUDE_IMAGE_GEN_DEBUG=1: keep raw API responses (minus image data) for troubleshooting. */
 function dumpResponse(id: string, response: any): void {
   const strip = (v: any): any =>

@@ -38201,7 +38201,7 @@ server.registerTool(
     }
   }
 );
-var nullable2 = (s) => s.or(external_exports.literal("default")).optional();
+var resettable = (s) => s.or(external_exports.literal("default")).optional();
 server.registerTool(
   "image_settings",
   {
@@ -38210,11 +38210,11 @@ server.registerTool(
     inputSchema: {
       mainlineModel: external_exports.string().optional().describe("Responses API model that drives the image tool."),
       imageModel: external_exports.string().optional().describe("Image model, e.g. gpt-image-2.5-sunburst or gpt-image-2.5-flare."),
-      size: nullable2(external_exports.string()),
-      quality: nullable2(external_exports.enum(["low", "medium", "high", "xhigh", "max", "auto"])),
-      outputFormat: nullable2(external_exports.enum(["png", "jpeg", "webp"])),
-      background: nullable2(external_exports.enum(["auto", "transparent", "opaque"])),
-      moderation: nullable2(external_exports.enum(["auto", "low"])),
+      size: resettable(external_exports.string()),
+      quality: resettable(external_exports.enum(["low", "medium", "high", "xhigh", "max", "auto"])),
+      outputFormat: resettable(external_exports.enum(["png", "jpeg", "webp"])),
+      background: resettable(external_exports.enum(["auto", "transparent", "opaque"])),
+      moderation: resettable(external_exports.enum(["auto", "low"])),
       openGallery: external_exports.boolean().optional(),
       galleryPort: external_exports.number().int().min(1024).max(65535).optional()
     },

@@ -83,7 +83,7 @@ server.registerTool(
     };
     let result: BatchResult;
     try {
-      result = await generate(args as any, progress);
+      result = await generate(args, progress);
     } catch (e) {
       return fail(e);
     }
@@ -228,7 +228,8 @@ server.registerTool(
   },
 );
 
-const nullable = (s: z.ZodTypeAny) => s.or(z.literal("default")).optional();
+/** Optional setting that also accepts "default", meaning "reset to the API default" (stored as null). */
+const resettable = (s: z.ZodTypeAny) => s.or(z.literal("default")).optional();
 
 server.registerTool(
   "image_settings",
@@ -239,11 +240,11 @@ server.registerTool(
     inputSchema: {
       mainlineModel: z.string().optional().describe("Responses API model that drives the image tool."),
       imageModel: z.string().optional().describe("Image model, e.g. gpt-image-2.5-sunburst or gpt-image-2.5-flare."),
-      size: nullable(z.string()),
-      quality: nullable(z.enum(["low", "medium", "high", "xhigh", "max", "auto"])),
-      outputFormat: nullable(z.enum(["png", "jpeg", "webp"])),
-      background: nullable(z.enum(["auto", "transparent", "opaque"])),
-      moderation: nullable(z.enum(["auto", "low"])),
+      size: resettable(z.string()),
+      quality: resettable(z.enum(["low", "medium", "high", "xhigh", "max", "auto"])),
+      outputFormat: resettable(z.enum(["png", "jpeg", "webp"])),
+      background: resettable(z.enum(["auto", "transparent", "opaque"])),
+      moderation: resettable(z.enum(["auto", "low"])),
       openGallery: z.boolean().optional(),
       galleryPort: z.number().int().min(1024).max(65535).optional(),
     },
