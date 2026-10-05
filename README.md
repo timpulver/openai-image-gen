@@ -49,6 +49,8 @@ The server looks for the key in this order:
    Don't use the interactive form (`-w` without a value): its prompt silently cuts input off at 128 characters,
    and OpenAI project keys are longer. Check with
    `security find-generic-password -s OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN -w | wc -c` (a full key gives about 165).
+   Passing the key as an argument makes it visible to `ps` for the moment the command runs; on a personal Mac that's
+   an acceptable trade-off for getting the whole key stored.
 
    Keys added this way stay in the Mac's login keychain and don't sync, so run this on each Mac.
 
@@ -145,7 +147,8 @@ image's details show which method was used ("continued conversation" or "parent 
 | Your own notes, plans, handoff files, later Claude sessions on any of your Macs | the id: `img:k7f2` |
 | Anything committed to git or shared with others | `/img:keep k7f2 ./assets/` to copy it into the repo, then reference that copy |
 
-Claude follows this rule automatically: library paths never end up in committed files.
+Claude is instructed to follow this rule (via the server's instructions), so library paths shouldn't end up in
+committed files. It's guidance to the model, not a hard check, so keep an eye on it when reviewing commits.
 
 ## The gallery
 
@@ -181,8 +184,10 @@ it uses `inspect_image` to zoom into a region at native resolution. Claude's vis
 
 - Prompts and reference images are sent to OpenAI. Pasted images are only read from the transcript when you
   reference them.
+- Responses are stored by OpenAI (`store: true`, about 30 days). Refining via `previous_response_id` depends on that;
+  after it expires, the parent image is re-uploaded instead.
 - The gallery listens on `127.0.0.1` only, rejects requests for other host names, and requires a custom header for
-  writes, so websites can't post to it.
+  writes, so websites can't post to it. Other user accounts on the same Mac can still reach it locally.
 
 ## Development
 
