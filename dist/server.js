@@ -36701,7 +36701,7 @@ function baseName(id, prompt, date5 = /* @__PURE__ */ new Date()) {
 async function ensureLocal(file2, timeoutMs = 9e4) {
   if (fs2.existsSync(file2)) return;
   const placeholder = path2.join(path2.dirname(file2), `.${path2.basename(file2)}.icloud`);
-  if (!fs2.existsSync(placeholder)) throw new Error(`File not found: ${file2}`);
+  if (!fs2.existsSync(placeholder)) throw Object.assign(new Error(`File not found: ${file2}`), { code: "ENOENT" });
   await new Promise((resolve) => execFile("brctl", ["download", file2], () => resolve()));
   const start = Date.now();
   while (!fs2.existsSync(file2)) {
@@ -37043,6 +37043,7 @@ import { execFile as execFile3, spawn } from "node:child_process";
 import fs5 from "node:fs";
 import http from "node:http";
 import path5 from "node:path";
+import { pipeline } from "node:stream";
 import { promisify as promisify2 } from "node:util";
 
 // src/gallery/page.html
@@ -37489,7 +37490,7 @@ var Gallery = class {
     return new Promise((resolve, reject) => {
       const server2 = http.createServer((req, res) => {
         this.handle(req, res).catch((e) => {
-          if (!res.headersSent) res.writeHead(500, { "Content-Type": "text/plain" });
+          if (!res.headersSent) res.writeHead(e?.code === "ENOENT" ? 404 : 500, { "Content-Type": "text/plain" });
           res.end(String(e?.message ?? e));
         });
       });
@@ -37597,22 +37598,31 @@ var Gallery = class {
       const file2 = imagePath(r);
       await ensureLocal(file2);
       const served = fileMatch[1] === "thumb" ? await thumbnail(r, file2) : file2;
-      res.writeHead(200, {
+      return sendFile(res, served, {
         "Content-Type": MIME[extOf(served)] ?? "application/octet-stream",
         "Cache-Control": "public, max-age=31536000, immutable"
       });
-      return void fs5.createReadStream(served).pipe(res);
     }
     const inputMatch = /^\/input\/([a-f0-9]{16}\.[a-z]+)$/.exec(p);
     if (inputMatch) {
       const file2 = path5.join(inputsDir(), inputMatch[1]);
       await ensureLocal(file2);
-      res.writeHead(200, { "Content-Type": MIME[extOf(file2)] ?? "application/octet-stream", "Cache-Control": "max-age=31536000" });
-      return void fs5.createReadStream(file2).pipe(res);
+      return sendFile(res, file2, { "Content-Type": MIME[extOf(file2)] ?? "application/octet-stream", "Cache-Control": "max-age=31536000" });
     }
     res.writeHead(404).end();
   }
 };
+async function sendFile(res, file2, headers) {
+  const stream = fs5.createReadStream(file2);
+  await new Promise((resolve, reject) => {
+    stream.once("open", () => resolve());
+    stream.once("error", reject);
+  });
+  res.writeHead(200, headers);
+  pipeline(stream, res, (err) => {
+    if (err) res.destroy();
+  });
+}
 function summary(r) {
   return {
     id: r.id,

@@ -2,6 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { pipeline } from "node:stream";
 import { promisify } from "node:util";
 import { APP_NAME, VERSION, cacheDir, inputsDir, loadSettings } from "../config.js";
 import {
@@ -132,7 +133,7 @@ class Gallery {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
         this.handle(req, res).catch((e) => {
-          if (!res.headersSent) res.writeHead(500, { "Content-Type": "text/plain" });
+          if (!res.headersSent) res.writeHead(e?.code === "ENOENT" ? 404 : 500, { "Content-Type": "text/plain" });
           res.end(String(e?.message ?? e));
         });
       });
@@ -247,21 +248,37 @@ class Gallery {
       const file = imagePath(r);
       await ensureLocal(file);
       const served = fileMatch[1] === "thumb" ? await thumbnail(r, file) : file;
-      res.writeHead(200, {
+      return sendFile(res, served, {
         "Content-Type": MIME[extOf(served)] ?? "application/octet-stream",
         "Cache-Control": "public, max-age=31536000, immutable",
       });
-      return void fs.createReadStream(served).pipe(res);
     }
     const inputMatch = /^\/input\/([a-f0-9]{16}\.[a-z]+)$/.exec(p);
     if (inputMatch) {
       const file = path.join(inputsDir(), inputMatch[1]);
       await ensureLocal(file);
-      res.writeHead(200, { "Content-Type": MIME[extOf(file)] ?? "application/octet-stream", "Cache-Control": "max-age=31536000" });
-      return void fs.createReadStream(file).pipe(res);
+      return sendFile(res, file, { "Content-Type": MIME[extOf(file)] ?? "application/octet-stream", "Cache-Control": "max-age=31536000" });
     }
     res.writeHead(404).end();
   }
+}
+
+/**
+ * Stream a file without risking the process: the file is opened before headers
+ * are sent (so a missing file becomes a 404 via the handler's catch), and
+ * pipeline() handles read errors mid-stream instead of throwing an uncaught
+ * 'error' event that would kill this MCP server.
+ */
+async function sendFile(res: http.ServerResponse, file: string, headers: http.OutgoingHttpHeaders): Promise<void> {
+  const stream = fs.createReadStream(file);
+  await new Promise<void>((resolve, reject) => {
+    stream.once("open", () => resolve());
+    stream.once("error", reject);
+  });
+  res.writeHead(200, headers);
+  pipeline(stream, res, (err) => {
+    if (err) res.destroy();
+  });
 }
 
 function summary(r: ImageRecord) {

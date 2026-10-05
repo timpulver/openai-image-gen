@@ -171,6 +171,13 @@ try {
   assert.equal((await star.json()).starred, false);
   ok("gallery: feed, thumbnails, starring, and request guards");
 
+  // A file deleted behind the server's back must give a 404, not crash the MCP server.
+  fs.rmSync(sidecar(b).file.replace(".json", ".png"));
+  assert.equal((await fetch(`${base}/file/${b}`)).status, 404);
+  assert.equal((await (await fetch(`${base}/api/ping`)).json()).app, "claude-image-gen");
+  assert.match((await call("list_images", { limit: 1 })).text, /^[a-z2-9]{4} /m);
+  ok("missing image files give a 404 and the server survives");
+
   console.log(`\nAll ${step} checks passed.`);
 } finally {
   await client.close();

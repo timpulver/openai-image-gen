@@ -125,7 +125,7 @@ export function baseName(id: string, prompt: string, date = new Date()): string 
 export async function ensureLocal(file: string, timeoutMs = 90_000): Promise<void> {
   if (fs.existsSync(file)) return;
   const placeholder = path.join(path.dirname(file), `.${path.basename(file)}.icloud`);
-  if (!fs.existsSync(placeholder)) throw new Error(`File not found: ${file}`);
+  if (!fs.existsSync(placeholder)) throw Object.assign(new Error(`File not found: ${file}`), { code: "ENOENT" });
   await new Promise<void>((resolve) => execFile("brctl", ["download", file], () => resolve()));
   const start = Date.now();
   while (!fs.existsSync(file)) {
