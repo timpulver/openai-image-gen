@@ -200,6 +200,29 @@ it uses `inspect_image` to zoom into a region at native resolution. Claude's vis
 - The gallery listens on `127.0.0.1` only, rejects requests for other host names, and requires a custom header for
   writes, so websites can't post to it. Other user accounts on the same Mac can still reach it locally.
 
+## How it's built
+
+The plugin is an MCP server (`src/main.ts`) plus five skills (`skills/*/SKILL.md`) that become the `/img:…`
+commands. The rules Claude follows (show the gallery, use `img:<id>` in notes, export before committing) live in the
+server's instructions. `bin/run.sh` finds a suitable Node.js and starts the server.
+
+| Part | Built with |
+|---|---|
+| MCP server | [`@modelcontextprotocol/server`](https://www.npmjs.com/package/@modelcontextprotocol/server) (TypeScript SDK v2), tool schemas in [zod](https://zod.dev) 4 |
+| OpenAI requests | [ofetch](https://github.com/unjs/ofetch) 2 on native `fetch`. Retries 429/5xx, but never a request that got no answer, since it may already have been billed |
+| Gallery | [h3](https://h3.dev) v2 on `node:http`, live updates via server-sent events, plain HTML/JS page (`src/gallery/page.html`) |
+| Image previews, crops, conversion | macOS `sips` (no native dependencies) |
+| Bundle | [Rolldown](https://rolldown.rs) → one ESM file, `dist/server.js` |
+
+**Why `dist/` is committed:** Claude Code installs plugins with `git clone` and never runs `npm install`, so the
+server and all its dependencies are bundled into `dist/server.js` and checked in. `.gitattributes` marks it as
+generated, so GitHub hides it in diffs. The build also swaps out the MCP SDK's bundled ajv validator (unused here)
+for the SDK's lighter one (`src/mcp-shims.ts`).
+
+**One gallery for all sessions:** every Claude session runs its own server, but only the first one to bind the
+gallery port serves it. The others forward their updates to it over HTTP. If that session ends, the next update
+elects a new one.
+
 ## Development
 
 ```sh
