@@ -144,7 +144,7 @@ server.registerTool(
       const out = await crop(file, (box as [number, number, number, number]) ?? region, 1568, keepsAlpha(r));
       return {
         content: [
-          text(`${r.id} ${box ? `box ${JSON.stringify(box)}` : region}: pixels x=${out.box.x} y=${out.box.y} w=${out.box.w} h=${out.box.h} of ${r.width}×${r.height}`),
+          text(`${r.id} ${box ? `box ${JSON.stringify(box)}` : region}: pixels x=${out.box.x} y=${out.box.y} w=${out.box.w} h=${out.box.h} of ${out.image.width}×${out.image.height}`),
           { type: "image" as const, data: out.data, mimeType: out.mimeType },
         ],
       };

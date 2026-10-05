@@ -134,7 +134,7 @@ export async function crop(
   region: Region | [number, number, number, number],
   maxEdge: number,
   keepAlpha: boolean,
-): Promise<Rendered & { box: { x: number; y: number; w: number; h: number } }> {
+): Promise<Rendered & { box: { x: number; y: number; w: number; h: number }; image: { width: number; height: number } }> {
   const dims = await dimensions(file);
   if (!dims) throw new Error("Could not read image dimensions.");
   const [fx, fy, fw, fh] = Array.isArray(region) ? region : REGIONS[region];
@@ -144,10 +144,10 @@ export async function crop(
   const w = Math.max(1, Math.min(dims.width - x, Math.round(clamp(fw) * dims.width)));
   const h = Math.max(1, Math.min(dims.height - y, Math.round(clamp(fh) * dims.height)));
   const box = { x, y, w, h };
-  if (!isMac) return { ...(await preview(file, maxEdge, keepAlpha)), box: { x: 0, y: 0, w: dims.width, h: dims.height } };
+  if (!isMac) return { ...(await preview(file, maxEdge, keepAlpha)), box: { x: 0, y: 0, w: dims.width, h: dims.height }, image: dims };
   return withTmp("png", async (cropped) => {
     // sips takes height/width and offsetY/offsetX, in that order.
     await run("sips", ["-c", String(h), String(w), "--cropOffset", String(y), String(x), file, "--out", cropped]);
-    return { ...(await preview(cropped, Math.min(maxEdge, Math.max(w, h)), keepAlpha)), box };
+    return { ...(await preview(cropped, Math.min(maxEdge, Math.max(w, h)), keepAlpha)), box, image: dims };
   });
 }

@@ -36952,10 +36952,10 @@ async function crop(file2, region, maxEdge, keepAlpha) {
   const w = Math.max(1, Math.min(dims.width - x, Math.round(clamp(fw) * dims.width)));
   const h = Math.max(1, Math.min(dims.height - y, Math.round(clamp(fh) * dims.height)));
   const box = { x, y, w, h };
-  if (!isMac) return { ...await preview(file2, maxEdge, keepAlpha), box: { x: 0, y: 0, w: dims.width, h: dims.height } };
+  if (!isMac) return { ...await preview(file2, maxEdge, keepAlpha), box: { x: 0, y: 0, w: dims.width, h: dims.height }, image: dims };
   return withTmp("png", async (cropped) => {
     await run("sips", ["-c", String(h), String(w), "--cropOffset", String(y), String(x), file2, "--out", cropped]);
-    return { ...await preview(cropped, Math.min(maxEdge, Math.max(w, h)), keepAlpha), box };
+    return { ...await preview(cropped, Math.min(maxEdge, Math.max(w, h)), keepAlpha), box, image: dims };
   });
 }
 
@@ -38103,7 +38103,7 @@ server.registerTool(
       const out = await crop(file2, box ?? region, 1568, keepsAlpha(r));
       return {
         content: [
-          text(`${r.id} ${box ? `box ${JSON.stringify(box)}` : region}: pixels x=${out.box.x} y=${out.box.y} w=${out.box.w} h=${out.box.h} of ${r.width}\xD7${r.height}`),
+          text(`${r.id} ${box ? `box ${JSON.stringify(box)}` : region}: pixels x=${out.box.x} y=${out.box.y} w=${out.box.w} h=${out.box.h} of ${out.image.width}\xD7${out.image.height}`),
           { type: "image", data: out.data, mimeType: out.mimeType }
         ]
       };
