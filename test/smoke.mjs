@@ -5,8 +5,12 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+// v2 client: speaks the 2026-07-28 (stateless) protocol. The v1 SDK below plays an older,
+// handshake-based client, which must keep working too.
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport as LegacyStdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { gradientPng, startMock } from "./mock-openai.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "image-gen-test-"));
@@ -78,6 +82,23 @@ let step = 0;
 const ok = (msg) => console.log(`  ✓ ${++step}. ${msg}`);
 
 try {
+  // Protocol: tools are listed, instructions are delivered, and a 2025-era client still works.
+  const tools = (await client.listTools()).tools.map((t) => t.name);
+  assert.deepEqual(tools.sort(), ["export_image", "generate_images", "image_settings", "inspect_image", "list_image_models", "list_images", "open_gallery"]);
+  const legacy = new LegacyClient({ name: "legacy", version: "1" });
+  await legacy.connect(new LegacyStdioClientTransport({ command: process.execPath, args: [path.resolve("dist/server.js")], cwd: proj,
+    env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: lib, CLAUDE_IMAGE_GEN_LOCAL_CONFIG: path.join(root, "local"),
+      CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache-legacy") }, stderr: "inherit" }));
+  try {
+    assert.match(legacy.getInstructions() ?? "", /img:<id>/, "server instructions reach handshake-based clients");
+    assert.equal((await legacy.listTools()).tools.length, 7);
+    const res = await legacy.callTool({ name: "list_images", arguments: {} });
+    assert.ok(!res.isError, "list_images works over the legacy protocol");
+  } finally {
+    await legacy.close();
+  }
+  ok("protocol: 7 tools via the 2026-07-28 client; a 2025-era client (initialize handshake) also works");
+
   let r = await call("image_settings", { galleryPort: port, openGallery: false, quality: "low" });
   assert.match(r.text, new RegExp(`"galleryPort": ${port}`));
   const shared = JSON.parse(fs.readFileSync(path.join(lib, "settings.json"), "utf8"));
