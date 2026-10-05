@@ -169,6 +169,21 @@ try {
   assert.match(r.text, /larger than 50 MB/);
   ok("URL references are capped at 50 MB");
 
+  // Retries: only for rate limits / 5xx with a response; never for quota errors or lost requests.
+  r = await call("generate_images", { prompt: "RATE_LIMIT_ONCE", show: false });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(mock.seen.get("RATE_LIMIT_ONCE"), 2, "429 is retried (honouring Retry-After)");
+  r = await call("generate_images", { prompt: "FLAKY", show: false });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(mock.seen.get("FLAKY"), 2, "503 is retried");
+  r = await call("generate_images", { prompt: "QUOTA", show: false });
+  assert.match(r.text, /exceeded your current quota/);
+  assert.equal(mock.seen.get("QUOTA"), 1, "insufficient_quota must not be retried");
+  r = await call("generate_images", { prompt: "DROP", show: false });
+  assert.match(r.text, /Could not reach OpenAI/);
+  assert.equal(mock.seen.get("DROP"), 1, "a request that got no response must not be retried (it may have been billed)");
+  ok("retries: 429/503 retried, quota errors and lost requests not");
+
   r = await call("generate_images", { prompt: "BLOCK me", show: false });
   assert.equal(r.isError, true);
   assert.match(r.text, /moderation \(input stage\): violence/);

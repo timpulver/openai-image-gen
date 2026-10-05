@@ -1,3 +1,4 @@
+import { FetchError, ofetch } from "ofetch";
 import { clearCachedKey, getApiKey } from "./config.js";
 
 // Override only for testing or proxies; a dedicated name so a general OPENAI_BASE_URL never redirects this key.
@@ -22,39 +23,57 @@ export class OpenAIError extends Error {
   }
 }
 
-async function request(method: string, path: string, body?: unknown, timeoutMs = 300_000): Promise<any> {
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(BASE + path, {
-      method,
-      headers: { Authorization: `Bearer ${getApiKey()}`, "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const json: any = await res.json().catch(() => undefined);
-    if (res.ok) return json;
+const RETRIES = 2;
 
-    const err = json?.error ?? {};
-    // Rate limits and transient server errors: back off and retry twice.
-    if ((res.status === 429 || res.status >= 500) && attempt < 2 && err.code !== "insufficient_quota") {
-      const wait = Number(res.headers.get("retry-after")) * 1000 || 2000 * (attempt + 1) ** 2;
-      await new Promise((r) => setTimeout(r, wait));
-      continue;
+const openai = ofetch.create({
+  baseURL: BASE,
+  retry: RETRIES,
+  // Rate limits and transient server errors only.
+  retryStatusCodes: [429, 500, 502, 503, 504],
+  // Honour Retry-After; otherwise back off 2 s, then 8 s.
+  retryDelay: (ctx) =>
+    Number(ctx.response?.headers.get("retry-after")) * 1000 || 2000 * (RETRIES + 1 - Number(ctx.options.retry ?? RETRIES)) ** 2,
+  onRequest: (ctx) => {
+    ctx.options.headers.set("authorization", `Bearer ${getApiKey()}`);
+  },
+  // Never retry when no response arrived (timeout, network error): an image request may
+  // already have run and been billed, and a timeout has already cost five minutes.
+  onRequestError: (ctx) => {
+    ctx.options.retry = false;
+  },
+  onResponseError: (ctx) => {
+    // A 429 for an exhausted quota won't get better by waiting.
+    if (ctx.response._data?.error?.code === "insufficient_quota") ctx.options.retry = false;
+  },
+});
+
+/** Turn ofetch errors into OpenAIError with OpenAI's own message (and moderation details). */
+async function request<T>(path: string, options: { method: "GET" | "POST"; body?: Record<string, unknown>; timeout: number }): Promise<T> {
+  try {
+    return await openai<T>(path, options);
+  } catch (e) {
+    if (!(e instanceof FetchError)) throw e;
+    if (!e.response) {
+      const timedOut = (e.cause as Error | undefined)?.name === "TimeoutError";
+      throw new Error(timedOut ? `OpenAI didn't answer within ${options.timeout / 1000}s.` : `Could not reach OpenAI: ${e.message}`);
     }
-    if (res.status === 401) clearCachedKey();
-    let message = err.message || `OpenAI request failed with HTTP ${res.status}`;
+    const status = e.response.status;
+    const err = (e.data as any)?.error ?? {};
+    if (status === 401) clearCachedKey();
+    let message = err.message || `OpenAI request failed with HTTP ${status}`;
     if (err.code === "moderation_blocked") {
       const d = err.moderation_details;
       message = `Blocked by OpenAI moderation${d?.moderation_stage ? ` (${d.moderation_stage} stage)` : ""}${
         d?.categories?.length ? `: ${d.categories.join(", ")}` : ""
       }.`;
     }
-    throw new OpenAIError(res.status, err.code, message, err);
+    throw new OpenAIError(status, err.code, message, err);
   }
 }
 
-export const createResponse = (body: unknown) => request("POST", "/responses", body);
+export const createResponse = (body: Record<string, unknown>) => request<any>("/responses", { method: "POST", body, timeout: 300_000 });
 
 export async function listModels(): Promise<string[]> {
-  const json = await request("GET", "/models", undefined, 30_000);
-  return (json.data as { id: string }[]).map((m) => m.id).sort();
+  const json = await request<{ data: { id: string }[] }>("/models", { method: "GET", timeout: 30_000 });
+  return json.data.map((m) => m.id).sort();
 }

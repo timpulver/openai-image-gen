@@ -32,6 +32,7 @@ export function gradientPng(w = 400, h = 200) {
 
 export function startMock() {
   const requests = [];
+  const seen = new Map();
   let n = 0;
   const png = gradientPng().toString("base64");
   const server = http.createServer((req, res) => {
@@ -65,6 +66,16 @@ export function startMock() {
       if (json.previous_response_id === "resp_expired") {
         return send(400, { error: { code: "previous_response_not_found", message: "Previous response with id 'resp_expired' not found." } });
       }
+      // Retry scenarios, keyed by prompt; `seen` counts attempts per prompt.
+      seen.set(text, (seen.get(text) ?? 0) + 1);
+      const attempt = seen.get(text);
+      if (text.includes("RATE_LIMIT_ONCE") && attempt === 1) {
+        res.setHeader("retry-after", "0.01");
+        return send(429, { error: { code: "rate_limit_exceeded", message: "slow down" } });
+      }
+      if (text.includes("FLAKY") && attempt === 1) return send(503, { error: { message: "unavailable" } });
+      if (text.includes("QUOTA")) return send(429, { error: { code: "insufficient_quota", message: "You exceeded your current quota." } });
+      if (text.includes("DROP")) return req.socket.destroy();
       if (text.includes("BLOCK")) {
         return send(400, {
           error: { code: "moderation_blocked", message: "blocked", moderation_details: { moderation_stage: "input", categories: ["violence"] } },
@@ -85,6 +96,6 @@ export function startMock() {
     });
   });
   return new Promise((resolve) =>
-    server.listen(0, "127.0.0.1", () => resolve({ server, requests, url: `http://127.0.0.1:${server.address().port}/v1` })),
+    server.listen(0, "127.0.0.1", () => resolve({ server, requests, seen, url: `http://127.0.0.1:${server.address().port}/v1` })),
   );
 }
