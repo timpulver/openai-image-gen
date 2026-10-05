@@ -36608,7 +36608,7 @@ function loadSettings() {
   try {
     text2 = fs.readFileSync(file2, "utf8");
   } catch (e) {
-    if (e?.code !== "ENOENT") throw new Error(`Could not read ${file2}: ${e?.message ?? e}`);
+    if (e?.code !== "ENOENT") throw explainFsError(e, file2);
     const placeholder = path.join(path.dirname(file2), `.${path.basename(file2)}.icloud`);
     if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
     text2 = downloadFromICloudSync(file2);
@@ -36648,11 +36648,23 @@ function saveSettings(patch) {
   }
   return { ...current, ...patch };
 }
+function explainFsError(e, file2) {
+  if ((e?.code === "EPERM" || e?.code === "EACCES") && file2.includes("/Library/Mobile Documents/")) {
+    return new Error(
+      `macOS blocked access to iCloud Drive (${file2}). Allow the app that runs Claude Code (Terminal, iTerm, VS Code, ...) in System Settings > Privacy & Security > Files & Folders (iCloud Drive) or Full Disk Access, then restart it. Or set CLAUDE_IMAGE_GEN_LIBRARY to a folder outside iCloud Drive.`
+    );
+  }
+  return e instanceof Error ? e : new Error(String(e));
+}
 function writeFileAtomic(file2, data) {
-  fs.mkdirSync(path.dirname(file2), { recursive: true });
-  const tmp = path.join(path.dirname(file2), `.${path.basename(file2)}.${process.pid}.tmp`);
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, file2);
+  try {
+    fs.mkdirSync(path.dirname(file2), { recursive: true });
+    const tmp = path.join(path.dirname(file2), `.${path.basename(file2)}.${process.pid}.tmp`);
+    fs.writeFileSync(tmp, data);
+    fs.renameSync(tmp, file2);
+  } catch (e) {
+    throw explainFsError(e, file2);
+  }
 }
 var cachedKey;
 function getApiKey() {
@@ -36724,13 +36736,15 @@ var cachedIndex;
 function dirIndex() {
   const dir = imagesDir();
   let mtimeMs;
+  let entries;
   try {
     mtimeMs = fs2.statSync(dir).mtimeMs;
-  } catch {
-    return { dir, mtimeMs: -1, entries: [], sidecars: /* @__PURE__ */ new Map() };
+    if (cachedIndex?.dir === dir && cachedIndex.mtimeMs === mtimeMs) return cachedIndex;
+    entries = fs2.readdirSync(dir);
+  } catch (e) {
+    if (e?.code === "ENOENT") return { dir, mtimeMs: -1, entries: [], sidecars: /* @__PURE__ */ new Map() };
+    throw explainFsError(e, dir);
   }
-  if (cachedIndex?.dir === dir && cachedIndex.mtimeMs === mtimeMs) return cachedIndex;
-  const entries = fs2.readdirSync(dir);
   const sidecars = /* @__PURE__ */ new Map();
   for (const e of entries) {
     const name = realName(e);
@@ -38134,9 +38148,13 @@ server.registerTool(
     annotations: { readOnlyHint: true }
   },
   async ({ limit, query, starred, parent }) => {
-    const q = query?.toLowerCase();
-    const rows = allRecords().filter((r) => !starred || r.starred).filter((r) => !parent || r.parent === parent).filter((r) => !q || `${r.id} ${r.prompt} ${r.revisedPrompt ?? ""}`.toLowerCase().includes(q)).slice(0, limit);
-    return { content: [text(rows.length ? rows.map(describe3).join("\n") : "No matching images.")] };
+    try {
+      const q = query?.toLowerCase();
+      const rows = allRecords().filter((r) => !starred || r.starred).filter((r) => !parent || r.parent === parent).filter((r) => !q || `${r.id} ${r.prompt} ${r.revisedPrompt ?? ""}`.toLowerCase().includes(q)).slice(0, limit);
+      return { content: [text(rows.length ? rows.map(describe3).join("\n") : "No matching images.")] };
+    } catch (e) {
+      return fail(e);
+    }
   }
 );
 server.registerTool(

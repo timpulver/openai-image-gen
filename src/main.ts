@@ -168,13 +168,17 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async ({ limit, query, starred, parent }) => {
-    const q = query?.toLowerCase();
-    const rows = allRecords()
-      .filter((r) => !starred || r.starred)
-      .filter((r) => !parent || r.parent === parent)
-      .filter((r) => !q || `${r.id} ${r.prompt} ${r.revisedPrompt ?? ""}`.toLowerCase().includes(q))
-      .slice(0, limit);
-    return { content: [text(rows.length ? rows.map(describe).join("\n") : "No matching images.")] };
+    try {
+      const q = query?.toLowerCase();
+      const rows = allRecords()
+        .filter((r) => !starred || r.starred)
+        .filter((r) => !parent || r.parent === parent)
+        .filter((r) => !q || `${r.id} ${r.prompt} ${r.revisedPrompt ?? ""}`.toLowerCase().includes(q))
+        .slice(0, limit);
+      return { content: [text(rows.length ? rows.map(describe).join("\n") : "No matching images.")] };
+    } catch (e) {
+      return fail(e);
+    }
   },
 );
 

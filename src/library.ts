@@ -3,7 +3,7 @@ import { randomInt } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { imagesDir, projectDir, writeFileAtomic } from "./config.js";
+import { explainFsError, imagesDir, projectDir, writeFileAtomic } from "./config.js";
 
 export interface RefRecord {
   /** library = another image in the library, file/url/paste = stored copy in inputs/ */
@@ -93,13 +93,16 @@ let cachedIndex: DirIndex | undefined;
 function dirIndex(): DirIndex {
   const dir = imagesDir();
   let mtimeMs: number;
+  let entries: string[];
   try {
     mtimeMs = fs.statSync(dir).mtimeMs;
-  } catch {
-    return { dir, mtimeMs: -1, entries: [], sidecars: new Map() };
+    if (cachedIndex?.dir === dir && cachedIndex.mtimeMs === mtimeMs) return cachedIndex;
+    entries = fs.readdirSync(dir);
+  } catch (e: any) {
+    // Only a missing folder means "empty library"; a blocked one must not look empty.
+    if (e?.code === "ENOENT") return { dir, mtimeMs: -1, entries: [], sidecars: new Map() };
+    throw explainFsError(e, dir);
   }
-  if (cachedIndex?.dir === dir && cachedIndex.mtimeMs === mtimeMs) return cachedIndex;
-  const entries = fs.readdirSync(dir);
   const sidecars = new Map<string, string[]>();
   for (const e of entries) {
     const name = realName(e);

@@ -281,6 +281,26 @@ try {
   fs.rmSync(twin);
   ok("duplicate ids are reported, not resolved arbitrarily");
 
+  // A library macOS won't let us read (iCloud Drive privacy block) must say so, not look empty.
+  const blocked = path.join(root, "Library", "Mobile Documents");
+  fs.mkdirSync(path.join(blocked, "Claude Images", "images"), { recursive: true });
+  fs.chmodSync(blocked, 0o000);
+  const client4 = new Client({ name: "smoke4", version: "1" });
+  await client4.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve("dist/server.js")], cwd: proj,
+    env: { ...process.env, CLAUDE_IMAGE_GEN_LIBRARY: path.join(blocked, "Claude Images"),
+      CLAUDE_IMAGE_GEN_LOCAL_CONFIG: path.join(root, "local"), CLAUDE_IMAGE_GEN_CACHE: path.join(root, "cache4") }, stderr: "inherit" }));
+  try {
+    for (const [tool, args] of [["list_images", {}], ["generate_images", { prompt: "x", show: false }]]) {
+      const res = await client4.callTool({ name: tool, arguments: args });
+      assert.equal(res.isError, true, `${tool} must fail on a blocked library`);
+      assert.match(res.content[0].text, /Privacy & Security/);
+    }
+  } finally {
+    await client4.close();
+    fs.chmodSync(blocked, 0o755);
+  }
+  ok("a blocked iCloud library explains the macOS permission instead of looking empty");
+
   // A file deleted behind the server's back must give a 404, not crash the MCP server.
   fs.rmSync(sidecar(b).file.replace(".json", ".png"));
   assert.equal((await fetch(`${base}/file/${b}`)).status, 404);

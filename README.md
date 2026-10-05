@@ -201,6 +201,9 @@ Commit `dist/` after changing `src/`. Plugins are installed straight from git, w
 - **"Incorrect API key provided"**: re-store the key with the `security add-generic-password -U … "$(pbpaste)"` command
   above. The interactive prompt truncates keys to 128 characters.
   Check that the key belongs to an active project. An env var, if set, takes precedence over the Keychain.
+- **"macOS blocked access to iCloud Drive"**: the app running Claude Code (Terminal, iTerm, VS Code, …) isn't allowed
+  into iCloud Drive. Allow it in System Settings → Privacy & Security → Files & Folders (iCloud Drive) or Full Disk
+  Access and restart it, or set `CLAUDE_IMAGE_GEN_LIBRARY` to a folder outside iCloud Drive.
 - **Tools don't show up**: run `/mcp` in Claude Code and look for `plugin:img:images`. If it failed, it's usually
   because Node.js wasn't found.
 - **Odd results or API errors**: set `CLAUDE_IMAGE_GEN_DEBUG=1` to keep OpenAI's raw responses (without the image data)

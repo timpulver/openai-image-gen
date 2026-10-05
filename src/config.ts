@@ -110,7 +110,7 @@ export function loadSettings(): Settings {
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (e: any) {
-    if (e?.code !== "ENOENT") throw new Error(`Could not read ${file}: ${e?.message ?? e}`);
+    if (e?.code !== "ENOENT") throw explainFsError(e, file);
     const placeholder = path.join(path.dirname(file), `.${path.basename(file)}.icloud`);
     if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
     text = downloadFromICloudSync(file);
@@ -155,12 +155,31 @@ export function saveSettings(patch: Partial<Settings>): Settings {
   return { ...current, ...patch };
 }
 
+/**
+ * macOS privacy controls (TCC) can block the app running Claude Code from iCloud Drive; the
+ * raw EPERM says nothing about how to fix that.
+ */
+export function explainFsError(e: any, file: string): Error {
+  if ((e?.code === "EPERM" || e?.code === "EACCES") && file.includes("/Library/Mobile Documents/")) {
+    return new Error(
+      `macOS blocked access to iCloud Drive (${file}). Allow the app that runs Claude Code (Terminal, iTerm, ` +
+        "VS Code, ...) in System Settings > Privacy & Security > Files & Folders (iCloud Drive) or Full Disk Access, " +
+        "then restart it. Or set CLAUDE_IMAGE_GEN_LIBRARY to a folder outside iCloud Drive.",
+    );
+  }
+  return e instanceof Error ? e : new Error(String(e));
+}
+
 /** Write via temp file + rename so iCloud never syncs a half-written file. */
 export function writeFileAtomic(file: string, data: string | Buffer): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, file);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
+    fs.writeFileSync(tmp, data);
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    throw explainFsError(e, file);
+  }
 }
 
 let cachedKey: string | undefined;
