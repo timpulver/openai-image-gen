@@ -38132,14 +38132,17 @@ server.registerTool(
       let out = path7.resolve(projectDir(), expandHome(dest));
       const isDir = dest.endsWith("/") || fs7.existsSync(out) && fs7.statSync(out).isDirectory();
       if (isDir) out = path7.join(out, `${slugify2(r.prompt)}.${extOf(src)}`);
+      else if (!extOf(out)) out += `.${extOf(src)}`;
       if (fs7.existsSync(out) && !overwrite) throw new Error(`${out} already exists (pass overwrite: true to replace it).`);
       fs7.mkdirSync(path7.dirname(out), { recursive: true });
-      const want = extOf(out);
-      if (want && want !== extOf(src) && process.platform === "darwin") {
-        const fmt = want === "jpg" ? "jpeg" : want;
-        execFileSync2("sips", ["-s", "format", fmt, src, "--out", out], { stdio: "ignore" });
-      } else {
+      const format = (ext) => ext === "jpg" ? "jpeg" : ext;
+      const want = format(extOf(out));
+      if (want === format(extOf(src))) {
         fs7.copyFileSync(src, out);
+      } else if (process.platform === "darwin") {
+        execFileSync2("sips", ["-s", "format", want, src, "--out", out], { stdio: "ignore" });
+      } else {
+        throw new Error(`Converting .${extOf(src)} to .${want} needs macOS; use a .${extOf(src)} destination.`);
       }
       await updateRecord(r.id, (rec) => {
         rec.exports = [...rec.exports ?? [], { path: out, at: (/* @__PURE__ */ new Date()).toISOString() }];

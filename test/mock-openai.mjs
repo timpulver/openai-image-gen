@@ -63,7 +63,7 @@ export function startMock() {
           send(200, {
             id: `resp_${i}`,
             output: [
-              { type: "image_generation_call", id: `ig_${i}`, result: png, revised_prompt: `revised: ${text}`, output_format: "png", size: "400x200" },
+              { type: "image_generation_call", id: `ig_${i}`, result: png, revised_prompt: `revised: ${text}`, output_format: json.tools[0].output_format ?? "png", size: "400x200" },
             ],
             usage: { input_tokens: 10, output_tokens: 20 },
           }),

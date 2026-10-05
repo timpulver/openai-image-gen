@@ -200,14 +200,17 @@ server.registerTool(
       let out = path.resolve(projectDir(), expandHome(dest));
       const isDir = dest.endsWith("/") || (fs.existsSync(out) && fs.statSync(out).isDirectory());
       if (isDir) out = path.join(out, `${slugify(r.prompt)}.${extOf(src)}`);
+      else if (!extOf(out)) out += `.${extOf(src)}`; // "assets/logo" -> "assets/logo.png"
       if (fs.existsSync(out) && !overwrite) throw new Error(`${out} already exists (pass overwrite: true to replace it).`);
       fs.mkdirSync(path.dirname(out), { recursive: true });
-      const want = extOf(out);
-      if (want && want !== extOf(src) && process.platform === "darwin") {
-        const fmt = want === "jpg" ? "jpeg" : want;
-        execFileSync("sips", ["-s", "format", fmt, src, "--out", out], { stdio: "ignore" });
+      const format = (ext: string) => (ext === "jpg" ? "jpeg" : ext);
+      const want = format(extOf(out));
+      if (want === format(extOf(src))) {
+        fs.copyFileSync(src, out); // same format (incl. .jpg vs .jpeg): copy, never re-encode
+      } else if (process.platform === "darwin") {
+        execFileSync("sips", ["-s", "format", want, src, "--out", out], { stdio: "ignore" });
       } else {
-        fs.copyFileSync(src, out);
+        throw new Error(`Converting .${extOf(src)} to .${want} needs macOS; use a .${extOf(src)} destination.`);
       }
       await updateRecord(r.id, (rec) => {
         rec.exports = [...(rec.exports ?? []), { path: out, at: new Date().toISOString() }];

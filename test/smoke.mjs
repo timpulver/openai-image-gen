@@ -171,7 +171,16 @@ try {
     await call("export_image", { id: a, dest: "assets/logo.jpg" });
     assert.equal(fs.readFileSync(path.join(proj, "assets/logo.jpg")).subarray(0, 2).toString("hex"), "ffd8");
   }
-  ok("export copies into the project, stars, refuses overwrite, converts format");
+  await call("export_image", { id: a, dest: "assets/noext" });
+  assert.ok(fs.existsSync(path.join(proj, "assets/noext.png")), "extensionless destination gets the source extension");
+  if (process.platform === "darwin") {
+    // A JPEG exported as .jpg must be a byte-identical copy, not a lossy re-encode.
+    const jpegId = ids((await call("generate_images", { prompt: "jpeg source", format: "jpeg", show: false })).text)[0];
+    await call("export_image", { id: jpegId, dest: "assets/photo.jpg" });
+    const src = fs.readdirSync(path.join(lib, "images")).find((n) => n.includes(`-${jpegId}-`) && !n.endsWith(".json"));
+    assert.ok(fs.readFileSync(path.join(proj, "assets/photo.jpg")).equals(fs.readFileSync(path.join(lib, "images", src))));
+  }
+  ok("export copies into the project, stars, refuses overwrite, converts format, keeps .jpg copies lossless");
 
   r = await call("list_image_models");
   assert.match(r.text, /gpt-image-2\.5-flare/);
