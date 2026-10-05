@@ -74,17 +74,47 @@ export const DEFAULT_SETTINGS: Settings = {
 /** Settings live inside the library so model choices follow you to every Mac. */
 const settingsPath = () => path.join(libraryDir(), "settings.json");
 
+/**
+ * Only a missing file means "no settings yet". Anything else (unreadable,
+ * half-synced, invalid JSON) is an error: silently falling back to defaults
+ * would generate with the wrong models, and the next save would overwrite the
+ * user's real settings with those defaults.
+ */
 export function loadSettings(): Settings {
+  const file = settingsPath();
+  let text: string;
   try {
-    const raw = JSON.parse(fs.readFileSync(settingsPath(), "utf8"));
-    return { ...DEFAULT_SETTINGS, ...raw };
+    text = fs.readFileSync(file, "utf8");
+  } catch (e: any) {
+    if (e?.code !== "ENOENT") throw new Error(`Could not read ${file}: ${e?.message ?? e}`);
+    const placeholder = path.join(path.dirname(file), `.${path.basename(file)}.icloud`);
+    if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
+    text = downloadFromICloudSync(file);
+  }
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(text) };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    throw new Error(`${file} is not valid JSON (perhaps a half-synced iCloud copy). Fix or delete it; nothing was changed.`);
   }
 }
 
+/** Older macOS versions offload files as ".name.icloud" placeholders; fetch one synchronously. */
+function downloadFromICloudSync(file: string, timeoutMs = 30_000): string {
+  try {
+    execFileSync("brctl", ["download", file], { stdio: "ignore" });
+  } catch {
+    // keep polling; the download may already be in progress
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(file)) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for iCloud to download ${file}.`);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+  }
+  return fs.readFileSync(file, "utf8");
+}
+
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const next = { ...loadSettings(), ...patch };
+  const next = { ...loadSettings(), ...patch }; // throws (and writes nothing) if the current file is unreadable
   writeFileAtomic(settingsPath(), JSON.stringify(next, null, 2) + "\n");
   return next;
 }

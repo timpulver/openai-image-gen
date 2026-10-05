@@ -71,6 +71,19 @@ try {
   assert.match(r.text, new RegExp(`"galleryPort": ${port}`));
   ok("settings persist into the library");
 
+  // A corrupt settings file must be reported, never silently replaced by defaults.
+  const settingsFile = path.join(lib, "settings.json");
+  const good = fs.readFileSync(settingsFile, "utf8");
+  fs.writeFileSync(settingsFile, '{"imageModel": "half-synced');
+  r = await call("image_settings", { quality: "high" });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /not valid JSON/);
+  assert.equal(fs.readFileSync(settingsFile, "utf8"), '{"imageModel": "half-synced', "must not overwrite");
+  r = await call("generate_images", { prompt: "x", show: false });
+  assert.equal(r.isError, true, "must not generate with default models");
+  fs.writeFileSync(settingsFile, good);
+  ok("corrupt settings.json is reported and left untouched");
+
   r = await call("generate_images", { prompt: "minimalist otter logo", count: 2, show: false });
   assert.equal(r.isError, false, r.text);
   const [a, b] = ids(r.text);

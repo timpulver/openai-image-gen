@@ -36588,12 +36588,33 @@ var DEFAULT_SETTINGS = {
 };
 var settingsPath = () => path.join(libraryDir(), "settings.json");
 function loadSettings() {
+  const file2 = settingsPath();
+  let text2;
   try {
-    const raw = JSON.parse(fs.readFileSync(settingsPath(), "utf8"));
-    return { ...DEFAULT_SETTINGS, ...raw };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
+    text2 = fs.readFileSync(file2, "utf8");
+  } catch (e) {
+    if (e?.code !== "ENOENT") throw new Error(`Could not read ${file2}: ${e?.message ?? e}`);
+    const placeholder = path.join(path.dirname(file2), `.${path.basename(file2)}.icloud`);
+    if (!fs.existsSync(placeholder)) return { ...DEFAULT_SETTINGS };
+    text2 = downloadFromICloudSync(file2);
   }
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(text2) };
+  } catch {
+    throw new Error(`${file2} is not valid JSON (perhaps a half-synced iCloud copy). Fix or delete it; nothing was changed.`);
+  }
+}
+function downloadFromICloudSync(file2, timeoutMs = 3e4) {
+  try {
+    execFileSync("brctl", ["download", file2], { stdio: "ignore" });
+  } catch {
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(file2)) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for iCloud to download ${file2}.`);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+  }
+  return fs.readFileSync(file2, "utf8");
 }
 function saveSettings(patch) {
   const next = { ...loadSettings(), ...patch };
