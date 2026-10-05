@@ -29,6 +29,17 @@ Create a separate OpenAI **project** for this (e.g. `claude-image-gen`) at
 <https://platform.openai.com/settings/organization/projects>, generate a key there, and set a **monthly budget**
 for the project. Its costs then show up separately, and a runaway loop can't drain your main account.
 
+A **restricted** key is enough. Under *Permissions → Restricted*, set:
+
+| Permission | Setting |
+|---|---|
+| Responses (`/v1/responses`) | **Request** |
+| List models | **Read** (for `list_image_models`) |
+| everything else | None |
+
+The Images endpoint (`/v1/images`) isn't needed: images are generated through the Responses API's
+`image_generation` tool.
+
 Image generation may require a [verified organization](https://help.openai.com/en/articles/10910291).
 
 ### 2. Make the key available as `OPENAI_API_KEY_FOR_CLAUDE_IMAGE_GEN`
