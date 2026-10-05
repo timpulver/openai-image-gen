@@ -2,37 +2,37 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { pipeline } from "node:stream";
 import { promisify } from "node:util";
+import { type EventStream, H3, HTTPError, bodyLimit, createEventStream, getRouterParam, readValidatedBody, toNodeHandler } from "h3";
+import { z } from "zod";
 import { APP_NAME, VERSION, cacheDir, inputsDir, loadSettings } from "../config.js";
-import {
-  ImageRecord,
-  allRecords,
-  childrenOf,
-  ensureLocal,
-  getRecord,
-  imagePath,
-  isImageId,
-  updateRecord,
-} from "../library.js";
+import { type ImageRecord, allRecords, childrenOf, ensureLocal, getRecord, imagePath, isImageId, updateRecord } from "../library.js";
 import { MIME, extOf } from "../images.js";
 import { PAGE_HTML } from "./page.js";
 
 const run = promisify(execFile);
 
-export type GalleryEvent =
-  | {
-      type: "batch";
-      batch: string;
-      ids: string[];
-      prompt: string;
-      parent?: string;
-      imageModel: string;
-      createdAt: string;
-    }
-  | { type: "image"; batch: string; id: string }
-  | { type: "error"; batch: string; id: string; message: string }
-  | { type: "updated"; id: string };
+/**
+ * Events from this or other sessions. Other sessions may run a different plugin version, so
+ * forwarded events are validated against this schema (which also defines the type).
+ */
+const GalleryEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("batch"),
+    batch: z.string(),
+    ids: z.array(z.string()),
+    prompt: z.string(),
+    parent: z.string().optional(),
+    imageModel: z.string(),
+    createdAt: z.string(),
+  }),
+  z.object({ type: z.literal("image"), batch: z.string(), id: z.string() }),
+  z.object({ type: z.literal("error"), batch: z.string(), id: z.string(), message: z.string() }),
+  z.object({ type: z.literal("updated"), id: z.string() }),
+]);
+export type GalleryEvent = z.infer<typeof GalleryEventSchema>;
+
+const StarSchema = z.object({ id: z.string().refine(isImageId), starred: z.boolean() });
 
 interface PendingBatch {
   meta: Extract<GalleryEvent, { type: "batch" }>;
@@ -52,7 +52,7 @@ class Gallery {
   /** Port the current role applies to; a galleryPort change triggers a new election. */
   private rolePort?: number;
   private electing?: Promise<"owner" | "remote">;
-  private clients = new Set<http.ServerResponse>();
+  private clients = new Set<EventStream>();
   private pending = new Map<string, PendingBatch>();
 
   get port(): number {
@@ -102,7 +102,7 @@ class Gallery {
   /** Give up the current role (port changed): stop serving on the old port and disconnect its tabs. */
   private resign(): void {
     if (this.server) {
-      for (const c of this.clients) c.end();
+      for (const c of this.clients) void c.close();
       this.clients.clear();
       this.server.close();
       this.server = undefined;
@@ -153,18 +153,15 @@ class Gallery {
       const p = this.pending.get(ev.batch);
       if (p) p.errors[ev.id] = ev.message;
     }
-    const data = `data: ${JSON.stringify(ev)}\n\n`;
-    for (const c of this.clients) c.write(data);
+    const data = JSON.stringify(ev);
+    for (const c of this.clients) void c.push(data);
   }
 
   private listen(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      const server = http.createServer((req, res) => {
-        this.handle(req, res).catch((e) => {
-          if (!res.headersSent) res.writeHead(e?.code === "ENOENT" ? 404 : 500, { "Content-Type": "text/plain" });
-          res.end(String(e?.message ?? e));
-        });
-      });
+      // h3 handles the requests; a plain node:http server owns the port so the election can
+      // see EADDRINUSE, bind to 127.0.0.1 only, and unref() the socket.
+      const server = http.createServer(toNodeHandler(this.routes()));
       server.once("error", reject);
       server.listen(port, "127.0.0.1", () => {
         server.off("error", reject);
@@ -214,106 +211,103 @@ class Gallery {
     return { batches: list.slice(0, limit), more: list.length > limit };
   }
 
-  private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    // Only answer to localhost names (blocks DNS-rebinding tricks from websites).
-    const host = (req.headers.host ?? "").replace(/:\d+$/, "");
-    if (host !== "localhost" && host !== "127.0.0.1") return void res.writeHead(403).end();
+  private routes(): H3 {
+    const app = new H3();
 
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const p = url.pathname;
-    const json = (body: unknown, status = 200) => {
-      res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      res.end(JSON.stringify(body));
-    };
-
-    if (req.method === "POST") {
+    app.use((event) => {
+      // Only answer to localhost names (blocks DNS-rebinding tricks from websites).
+      const host = (event.req.headers.get("host") ?? "").replace(/:\d+$/, "");
+      if (host !== "localhost" && host !== "127.0.0.1") throw HTTPError.status(403);
       // A custom header forces a CORS preflight we never approve, so other websites can't post here.
-      if (req.headers[AUTH_HEADER] !== "1") return void res.writeHead(403).end();
-      let body: any;
-      try {
-        body = JSON.parse((await readBody(req)) || "{}");
-      } catch (e: any) {
-        return json({ error: e?.message ?? "invalid body" }, 400);
-      }
-      if (p === "/api/event") {
-        // Other sessions may run a different plugin version: drop anything we don't understand
-        // rather than storing it, where it would break every later /api/feed.
-        if (!isGalleryEvent(body)) return json({ error: "invalid event" }, 400);
-        this.apply(body);
-        return json({ ok: true });
-      }
-      if (p === "/api/star" && isImageId(body.id)) {
-        const r = await updateRecord(body.id, (r) => void (r.starred = !!body.starred));
-        this.apply({ type: "updated", id: r.id });
-        return json({ ok: true, starred: !!r.starred });
-      }
-      return json({ error: "not found" }, 404);
-    }
+      if (event.req.method === "POST" && event.req.headers.get(AUTH_HEADER) !== "1") throw HTTPError.status(403);
+      event.res.headers.set("cache-control", "no-store");
+    });
 
-    if (p === "/") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      return void res.end(PAGE_HTML);
-    }
-    if (p === "/api/ping") return json({ app: APP_NAME, version: VERSION, pid: process.pid });
-    if (p === "/api/feed") return json(this.feed(url.searchParams));
-    if (p.startsWith("/api/image/")) {
-      const r = await getRecord(p.slice("/api/image/".length));
-      if (!r) return json({ error: "not found" }, 404);
-      return json({ record: r, path: imagePath(r), children: childrenOf(r.id).map((c) => c.id) });
-    }
-    if (p === "/events") {
-      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
-      res.write(`data: ${JSON.stringify({ type: "hello", loadedAt: Number(url.searchParams.get("loadedAt")) || 0 })}\n\n`);
-      // Tell older tabs a newer one exists; tabs we opened with `open` can close themselves.
-      const announce = `data: ${JSON.stringify({ type: "newer-tab", loadedAt: Number(url.searchParams.get("loadedAt")) || 0 })}\n\n`;
-      for (const c of this.clients) c.write(announce);
-      this.clients.add(res);
-      const keepAlive = setInterval(() => res.write(": ping\n\n"), 25_000);
+    // Not html(): in h3 v2 it escapes plain strings (it's meant for templates with dynamic values).
+    app.get("/", () => new Response(PAGE_HTML, { headers: { "content-type": "text/html; charset=utf-8" } }));
+    app.get("/api/ping", () => ({ app: APP_NAME, version: VERSION, pid: process.pid }));
+    app.get("/api/feed", (event) => this.feed(event.url.searchParams));
+    app.get("/api/image/:id", async (event) => {
+      const r = await getRecord(getRouterParam(event, "id") ?? "");
+      if (!r) throw HTTPError.status(404);
+      return { record: r, path: imagePath(r), children: childrenOf(r.id).map((c) => c.id) };
+    });
+
+    app.get("/events", (event) => {
+      const stream = createEventStream(event);
+      const loadedAt = Number(event.url.searchParams.get("loadedAt")) || 0;
+      void stream.push(JSON.stringify({ type: "hello", loadedAt }));
+      // Tell older tabs a newer one exists; tabs the plugin opened can close themselves.
+      for (const c of this.clients) void c.push(JSON.stringify({ type: "newer-tab", loadedAt }));
+      this.clients.add(stream);
+      const keepAlive = setInterval(() => void stream.pushComment("ping"), 25_000);
       keepAlive.unref();
-      req.on("close", () => {
+      stream.onClosed(() => {
         clearInterval(keepAlive);
-        this.clients.delete(res);
+        this.clients.delete(stream);
       });
-      return;
-    }
+      return stream.send();
+    });
 
-    const fileMatch = /^\/(file|thumb)\/([a-z2-9]{4})$/.exec(p);
-    if (fileMatch) {
-      const r = await getRecord(fileMatch[2]);
-      if (!r) return void res.writeHead(404).end();
+    const imageRoute = (kind: "file" | "thumb") => async (event: Parameters<typeof getRouterParam>[0]) => {
+      const id = getRouterParam(event, "id") ?? "";
+      const r = isImageId(id) ? await getRecord(id) : undefined;
+      if (!r) throw HTTPError.status(404);
       const file = imagePath(r);
-      await ensureLocal(file);
-      const served = fileMatch[1] === "thumb" ? await thumbnail(r, file) : file;
-      return sendFile(res, served, {
-        "Content-Type": MIME[extOf(served)] ?? "application/octet-stream",
-        "Cache-Control": "public, max-age=31536000, immutable",
+      await ensureLocal(file).catch(() => {
+        throw HTTPError.status(404);
       });
-    }
-    const inputMatch = /^\/input\/([a-f0-9]{16}\.[a-z]+)$/.exec(p);
-    if (inputMatch) {
-      const file = path.join(inputsDir(), inputMatch[1]);
-      await ensureLocal(file);
-      return sendFile(res, file, { "Content-Type": MIME[extOf(file)] ?? "application/octet-stream", "Cache-Control": "max-age=31536000" });
-    }
-    res.writeHead(404).end();
+      const served = kind === "thumb" ? await thumbnail(r, file) : file;
+      return fileResponse(served, "public, max-age=31536000, immutable");
+    };
+    app.get("/file/:id", imageRoute("file"));
+    app.get("/thumb/:id", imageRoute("thumb"));
+    app.get("/input/:name", async (event) => {
+      const name = getRouterParam(event, "name") ?? "";
+      if (!/^[a-f0-9]{16}\.[a-z]+$/.test(name)) throw HTTPError.status(404);
+      const file = path.join(inputsDir(), name);
+      await ensureLocal(file).catch(() => {
+        throw HTTPError.status(404);
+      });
+      return fileResponse(file, "max-age=31536000");
+    });
+
+    const small = { middleware: [bodyLimit(1 << 20)] };
+    app.post(
+      "/api/event",
+      async (event) => {
+        this.apply(await readValidatedBody(event, GalleryEventSchema));
+        return { ok: true };
+      },
+      small,
+    );
+    app.post(
+      "/api/star",
+      async (event) => {
+        const { id, starred } = await readValidatedBody(event, StarSchema);
+        const r = await updateRecord(id, (r) => void (r.starred = starred));
+        this.apply({ type: "updated", id: r.id });
+        return { ok: true, starred: !!r.starred };
+      },
+      small,
+    );
+    return app;
   }
 }
 
 /**
- * Stream a file without risking the process: the file is opened before headers
- * are sent (so a missing file becomes a 404 via the handler's catch), and
- * pipeline() handles read errors mid-stream instead of throwing an uncaught
- * 'error' event that would kill this MCP server.
+ * Gallery files are local and at most a few MB (a 4K PNG is ~20 MB), so they're read whole:
+ * a missing or vanished file becomes a clean 404 instead of an error halfway through a stream.
  */
-async function sendFile(res: http.ServerResponse, file: string, headers: http.OutgoingHttpHeaders): Promise<void> {
-  const stream = fs.createReadStream(file);
-  await new Promise<void>((resolve, reject) => {
-    stream.once("open", () => resolve());
-    stream.once("error", reject);
-  });
-  res.writeHead(200, headers);
-  pipeline(stream, res, (err) => {
-    if (err) res.destroy();
+async function fileResponse(file: string, cacheControl: string): Promise<Response> {
+  let data: Buffer;
+  try {
+    data = await fs.promises.readFile(file);
+  } catch (e: any) {
+    throw e?.code === "ENOENT" ? HTTPError.status(404) : e;
+  }
+  return new Response(new Uint8Array(data), {
+    headers: { "content-type": MIME[extOf(file)] ?? "application/octet-stream", "cache-control": cacheControl },
   });
 }
 
@@ -344,41 +338,6 @@ async function thumbnail(r: ImageRecord, file: string): Promise<string> {
   } catch {
     return file;
   }
-}
-
-function isGalleryEvent(v: any): v is GalleryEvent {
-  const str = (x: unknown) => typeof x === "string";
-  if (!v || typeof v !== "object") return false;
-  switch (v.type) {
-    case "batch":
-      return (
-        str(v.batch) && Array.isArray(v.ids) && v.ids.every(str) && str(v.prompt) && str(v.imageModel) &&
-        str(v.createdAt) && (v.parent === undefined || str(v.parent))
-      );
-    case "image":
-      return str(v.batch) && str(v.id);
-    case "error":
-      return str(v.batch) && str(v.id) && str(v.message);
-    case "updated":
-      return str(v.id);
-    default:
-      return false;
-  }
-}
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (c) => {
-      data += c;
-      if (data.length > 1 << 20) {
-        reject(new Error("body too large"));
-        req.destroy();
-      }
-    });
-    req.on("end", () => resolve(data));
-    req.on("error", reject);
-  });
 }
 
 export const gallery = new Gallery();

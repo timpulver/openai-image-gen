@@ -216,6 +216,9 @@ try {
 
   const base = `http://127.0.0.1:${port}`;
   assert.equal((await (await fetch(`${base}/api/ping`)).json()).app, "claude-image-gen");
+  const page = await fetch(`${base}/`);
+  assert.match(page.headers.get("content-type"), /^text\/html/);
+  assert.match(await page.text(), /^<!doctype html>[\s\S]*<script>/, "page must be served as markup, not escaped text");
   const feed = await (await fetch(`${base}/api/feed`)).json();
   assert.ok(feed.batches.length >= 4);
   assert.ok(feed.batches.some((g) => g.items.some((i) => i.status === "error")), "failed slot visible in gallery");

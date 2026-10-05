@@ -5,8 +5,9 @@ import process$1 from "node:process";
 import os from "node:os";
 import { promisify } from "node:util";
 import { createHash, randomInt } from "node:crypto";
-import http from "node:http";
-import { pipeline } from "node:stream";
+import nodeHTTP from "node:http";
+import { PassThrough, Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 var __defProp = Object.defineProperty;
 var __commonJSMin = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __exportAll = (all, symbols) => {
@@ -16743,7 +16744,7 @@ function serveStdio(factory, options = {}) {
 			message,
 			...data !== void 0 && { data }
 		}
-	}).catch((error) => reportError(toError(error)));
+	}).catch((error) => reportError(toError$1(error)));
 	/**
 	* Entry-handled `subscriptions/listen` for this connection: holds the
 	* active subscriptions, serves inbound listen / cancelled-of-listen
@@ -16762,7 +16763,7 @@ function serveStdio(factory, options = {}) {
 		for (const stamped of routed) wire.send({
 			jsonrpc: "2.0",
 			...stamped
-		}).catch((error) => reportError(toError(error)));
+		}).catch((error) => reportError(toError$1(error)));
 		return "handled";
 	};
 	/**
@@ -16806,7 +16807,7 @@ function serveStdio(factory, options = {}) {
 				jsonrpc: "2.0",
 				method: reply.method,
 				params: reply.params
-			}).catch((error) => reportError(toError(error)));
+			}).catch((error) => reportError(toError$1(error)));
 			return true;
 		}
 		if (isJSONRPCNotification(message) && message.method === "notifications/cancelled") {
@@ -16846,14 +16847,14 @@ function serveStdio(factory, options = {}) {
 		};
 	};
 	/** Closes an instance whose factory resolved only after the connection was torn down. */
-	const disposeLateInstance = (instance) => instance.product.close().catch((error) => reportError(toError(error)));
+	const disposeLateInstance = (instance) => instance.product.close().catch((error) => reportError(toError$1(error)));
 	const discardProbeInstance = async (instance) => {
 		discarding = instance.channel;
 		try {
 			if (!await instance.channel.whenRequestsAnswered(DISCARD_ANSWER_TIMEOUT_MS)) reportError(/* @__PURE__ */ new Error(`Discarded the probe instance with requests still unanswered after ${DISCARD_ANSWER_TIMEOUT_MS}ms; continuing with the fallback`));
 			await instance.product.close();
 		} catch (error) {
-			reportError(toError(error));
+			reportError(toError$1(error));
 		} finally {
 			discarding = void 0;
 		}
@@ -16973,7 +16974,7 @@ function serveStdio(factory, options = {}) {
 					await processMessage(message);
 				} catch (error) {
 					if (isJSONRPCRequest(message)) await writeErrorResponse(message.id, ProtocolErrorCode.InternalError, "Internal server error");
-					reportError(toError(error));
+					reportError(toError$1(error));
 				}
 			}
 		} finally {
@@ -16985,9 +16986,9 @@ function serveStdio(factory, options = {}) {
 		closing = true;
 		const current = state;
 		state = { phase: "closed" };
-		for (const result of listenRouter.teardownAll()) await wire.send(result).catch((error) => reportError(toError(error)));
-		if (current.phase === "probe" || current.phase === "pinned") await current.instance.product.close().catch((error) => reportError(toError(error)));
-		await wire.close().catch((error) => reportError(toError(error)));
+		for (const result of listenRouter.teardownAll()) await wire.send(result).catch((error) => reportError(toError$1(error)));
+		if (current.phase === "probe" || current.phase === "pinned") await current.instance.product.close().catch((error) => reportError(toError$1(error)));
+		await wire.close().catch((error) => reportError(toError$1(error)));
 	};
 	wire.onmessage = (message) => {
 		queue.push(message);
@@ -17002,10 +17003,10 @@ function serveStdio(factory, options = {}) {
 		closing = true;
 		const current = state;
 		state = { phase: "closed" };
-		if (current.phase === "probe" || current.phase === "pinned") current.instance.product.close().catch((error) => reportError(toError(error)));
+		if (current.phase === "probe" || current.phase === "pinned") current.instance.product.close().catch((error) => reportError(toError$1(error)));
 	};
 	const started = wire.start().catch((error) => {
-		reportError(toError(error));
+		reportError(toError$1(error));
 		throw error;
 	});
 	started.catch(() => {});
@@ -17014,7 +17015,7 @@ function serveStdio(factory, options = {}) {
 		await closeAll();
 	} };
 }
-function toError(value) {
+function toError$1(value) {
 	return value instanceof Error ? value : new Error(String(value));
 }
 //#endregion
@@ -17876,11 +17877,2850 @@ function parseLine(line, file) {
 	}
 }
 //#endregion
+//#region node_modules/rou3/dist/index.mjs
+const NullProtoObj = /* @__PURE__ */ (() => {
+	const e = function() {};
+	return e.prototype = Object.create(null), Object.freeze(e.prototype), e;
+})();
+function createRouter() {
+	return {
+		root: { key: "" },
+		static: new NullProtoObj()
+	};
+}
+const UNNAMED_GROUP_PREFIX = "__rou3_unnamed_";
+const ESCAPED_GROUP_PREFIX = "__rou3_esc_";
+function toUnnamedGroupKey(key) {
+	return typeof key === "string" ? toGroupName(key) : `${UNNAMED_GROUP_PREFIX}${key}`;
+}
+function toGroupName(name) {
+	return /^(?!__rou3_|_\d)[A-Za-z_]\w*$/.test(name) ? name : ESCAPED_GROUP_PREFIX + name.replace(/[_-]/g, (c) => c === "_" ? "__" : "_h");
+}
+function fromGroupName(key) {
+	if (key.charCodeAt(0) !== 95) return key;
+	if (key.startsWith("__rou3_esc_")) return key.slice(11).replace(/__|_h/g, (c) => c === "__" ? "_" : "-");
+	return key.startsWith("__rou3_unnamed_") ? key.slice(15) : key;
+}
+function emptyParam(m, segments) {
+	const pMap = m.paramsMap;
+	const params = pMap && getMatchParams(segments, pMap, m.suffix);
+	return !!pMap?.some(([, name, , empty]) => !empty && name > ":" && /(^|\/)(\/|$)/.test(params[name]));
+}
+function matchesZero(m) {
+	const last = m.paramsMap[m.paramsMap.length - 1];
+	return last[2] || !!last[3] && !last[5];
+}
+function normalizePath(path) {
+	if (!path.includes("/.")) return path;
+	const r = [];
+	let s = "";
+	for (s of path.split("/")) if (s === ".") continue;
+	else if (s === "..") {
+		if (r.length > 1) r.pop();
+	} else r.push(s);
+	if (s === "." || s === "..") r.push("");
+	return r.join("/") || "/";
+}
+function splitPath(path) {
+	const s = path.split("/");
+	s.shift();
+	return s;
+}
+function methodEntries(methods, method, reverse) {
+	let own = methods[method];
+	let any = method ? methods[""] : void 0;
+	if (reverse) {
+		own &&= own.slice().reverse();
+		any &&= any.slice().reverse();
+	}
+	return own && any ? any.concat(own) : own || any;
+}
+function reverseVariants(entries) {
+	let out;
+	for (let i = 0, j; i < entries.length; i = j) {
+		const token = entries[i].variants;
+		for (j = i + 1; token && entries[j]?.variants === token; j++);
+		if (j - i > 1) (out ??= entries.slice()).splice(i, j - i, ...entries.slice(i, j).reverse());
+	}
+	return out || entries;
+}
+function setParam(params, key, value, join) {
+	params[key] = join && params[key] !== void 0 ? params[key] + "/" + value : value;
+}
+function getMatchParams(segments, paramsMap, suffix, slash) {
+	const params = new NullProtoObj();
+	const end = suffix ? segments.length - suffix[1] : segments.length;
+	for (const [index, name, optional, , , join] of paramsMap) {
+		if (~index >= end && (optional || !slash)) continue;
+		const segment = index < 0 ? segments.slice(~index, end).join("/") : segments[suffix && index > suffix[0] ? index - suffix[0] - 1 + end : index];
+		if (typeof name === "string") {
+			setParam(params, name, segment, join);
+			if (index < 0 && optional && !join) params._ = segment;
+		} else {
+			const match = segment.match(name);
+			if (match) {
+				for (const key in match.groups) if (match.groups[key] !== void 0) setParam(params, fromGroupName(key), match.groups[key], join);
+			}
+		}
+	}
+	return params;
+}
+function encodeEscapes(path) {
+	if (!path.includes("\\")) return path;
+	return path.replace(/\\([:(){}\\])/g, (_, c) => "�" + ESCAPABLE.indexOf(c));
+}
+function decodeEscapes(segment, prefix) {
+	return segment.replace(/\uFFFD([0-5])/g, (_, i) => prefix + ESCAPABLE[i]);
+}
+const ESCAPABLE = ":(){}\\";
+function segmentKey(segment) {
+	if (segment === "*" || segment.startsWith("**")) return 2;
+	if (segment.includes(":") || segment.includes("(") || segmentWildcards(segment).length > 0) return 1;
+	if (segment.includes("\\")) segment = segment.replace(/\\([\s\S])/g, "$1");
+	if (segment.includes("�")) segment = decodeEscapes(segment, "");
+	return encodeLiteral(segment);
+}
+function encodeLiteral(text) {
+	return /[\0- "#<>?^`{}\x7F-\uFFFC]/.test(text) ? text.replace(/[\0- "#<>?^`{}\x7F-\uFFFC]+/g, (run) => encodeURIComponent(run.replace(/[\uD800-\uDFFF]/gu, "�"))) : text;
+}
+function checkConstraints(route) {
+	if (!/[\t\n\r\\({}\uFFFD-\uFFFF]/.test(route)) return;
+	if (/[\t\n\r\uFFFD-\uFFFF]/.test(route)) invalidSyntax("a tab, LF, CR (use %09, %0A, %0D) or U+FFFD-U+FFFF char", route);
+	let s = route.replace(/\\([^/])/g, (_, c) => c > "0" && c <= "9" ? "\0" : "_");
+	while (s !== (s = s.replace(/\([^()/]*\)/g, (group) => {
+		if (/[$^]|^\(\?<?[=!]/.test(group.replace(/\[[^\]]*\]/g, "")) || group.includes("\0")) invalidSyntax("an anchor, look-around, backreference or capturing group in a constraint", route);
+		if (classSetOp(group)) invalidSyntax("a `--` / `&&` in a class of a constraint", route);
+		return group[1] === "?" && group[2] !== "<" ? "" : "\0";
+	})));
+	if (s.includes("(")) throw new Error(`rou3: a \`(\` must close in its own segment, escape a literal one as \`\\(\` (${route})`);
+	if (s.includes("\\")) invalidSyntax("a `\\` must escape a char of its segment", route);
+	if (/[{}]/.test(s.replace(/\{[^{}]*\}/g, ""))) invalidSyntax("unbalanced or nested `{}`", route);
+}
+function classSetOp(s) {
+	let found = false;
+	while (!found && /--|&&/.test(s) && s !== (s = s.replace(/\[[^[\]]*\]/g, (k) => {
+		found ||= /--|&&/.test(k);
+		return "_";
+	})));
+	return found;
+}
+function starGroups(path) {
+	if (!path.includes("(.*)")) return [path];
+	let count = 0;
+	let unnamed;
+	return [path.replace(/\\[\s\S]|(:[A-Za-z_]\w*)?\((?!\?)(\.\*\)(?!\*))?/g, (m, name, star, at) => {
+		if (m[0] === "\\" || !star) {
+			if (m[0] === "(") count++;
+			return m;
+		}
+		if (name) {
+			const k = count;
+			unnamed = (index) => index === k ? name.slice(1) : index > k ? index - 1 : index;
+		} else count++;
+		return /(^|[^\\])(\\\\)*([)*}?]|:[A-Za-z_]\w*)\{?$/.test(path.slice(0, at)) ? "￿*" : "*";
+	}), unnamed];
+}
+function absolutePattern(path) {
+	return /^[/{]/.test(path) ? path : `/${path}`;
+}
+function dotSegments(path) {
+	if (!DOT_SEGMENT.test(path)) return path;
+	const s = path.split("/");
+	const out = [s[0]];
+	let dot = false;
+	for (let i = 1; i < s.length; i++) {
+		const m = /^(?:\.|%2e)(\.|%2e)?$/i.exec(s[i]);
+		if (m) {
+			if (m[1] && (out.length > 1 || out[0]) && !isText(out.pop())) invalidSyntax(DOT_SEGMENT_NEXT_TO, path);
+			dot = true;
+			continue;
+		}
+		if (dot && /^[:*(]/.test(s[i])) invalidSyntax(DOT_SEGMENT_NEXT_TO, path);
+		out.push(s[i]);
+		dot = false;
+	}
+	if (dot) out.push("");
+	return out.join("/");
+}
+const isText = (segment) => typeof segmentKey(segment = encodeEscapes(segment)) === "string" && !/[{}]|(^|[^\\])\?/.test(segment);
+const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?=\/|$)/i;
+const DOT_SEGMENT_NEXT_TO = "`.` / `..` segment next to a param, catch-all or group";
+function invalidSyntax(what, route) {
+	throw new Error(`rou3: ${what} (${route})`);
+}
+const MISPLACED_MODIFIER = "misplaced `?` / `+` / `*`: `?` follows `:name` or `:name(…)`, `+` / `*` a whole-segment `:name`, none a catch-all (`(.*)` too); escape a literal one with `\\`";
+const PARAM_MODIFIER = /^(.*)(:[A-Za-z_]\w*(?:\([^)]*\))?)([?+*])$/;
+function expandModifiers(segments, input) {
+	for (let i = 0; i < segments.length; i++) {
+		const last = segments[i].charCodeAt(segments[i].length - 1);
+		if (last !== 63 && last !== 43 && last !== 42) continue;
+		const m = segments[i].match(PARAM_MODIFIER);
+		if (!m) continue;
+		const pre = segments.slice(0, i);
+		const suf = segments.slice(i + 1);
+		const without = "/" + pre.concat(m[1] || [], suf).join("/");
+		if (m[3] === "?" && m[1] !== "**") {
+			if (typeof segmentKey(m[1]) !== "string") continue;
+			return ["/" + pre.concat(m[1] + m[2], suf).join("/"), without];
+		}
+		if (m[1] || m[2].includes("(")) invalidSyntax(MISPLACED_MODIFIER, input);
+		const wc = "/" + pre.concat("**" + m[2], suf).join("/");
+		return m[3] === "+" ? [wc] : [wc, without];
+	}
+}
+function splitStar(segments, input) {
+	for (let i = 0; i < segments.length; i++) {
+		const segment = segments[i];
+		const at = segment.startsWith("**") || segment === "*" ? [] : segmentWildcards(segment);
+		if (at.length === 0) continue;
+		for (let j = i + 1; j < segments.length && at.length === 1; j++) if (!segments[j].startsWith("**") && segments[j] !== "*") at.push(...segmentWildcards(segments[j]));
+		if (at.length > 1) {
+			if (at.some((x, k) => at[k + 1] === x + 1)) invalidSyntax(MISPLACED_MODIFIER, input);
+			oneCatchAll(input);
+		}
+		const pre = segments.slice(0, i);
+		const post = segments.slice(i + 1);
+		const head = segment.slice(0, at[0]);
+		const tail = segment.slice(at[0] + 1);
+		if (!head) return [
+			[pre.concat("**", segment, post)],
+			i,
+			false
+		];
+		if (!tail) return [
+			[pre.concat(segment, "**", post), segments],
+			i + 1,
+			true
+		];
+		return [
+			[pre.concat(head + "*", "**", "*" + tail, post), segments],
+			i + 1,
+			true
+		];
+	}
+}
+function oneCatchAll(input) {
+	throw new Error(`rou3: a route can have only one \`*\`, \`**\`, \`:name+\` or \`:name*\` (${input})`);
+}
+function splitRoute(path) {
+	const s = splitPath(path);
+	while (s[s.length - 1] === "") s.pop();
+	if (path.includes("**")) {
+		for (let i = 0; i < s.length; i++) if (/^\*\*[^:{}]/.test(s[i])) s.splice(i, 1, ...s[i][2] === "*" ? ["**", s[i].slice(2)] : [s[i].slice(1)]);
+	}
+	return s;
+}
+function expandedRouteId(path) {
+	if (path.charCodeAt(0) !== 47) return `{${expandedRouteId(`/${path}`)}`;
+	return "/" + splitRoute(encodeEscapes(path)).map((segment) => {
+		const key = segmentKey(segment);
+		return typeof key === "string" ? key : segment;
+	}).join("/");
+}
+function addName(names, name, input) {
+	if (names.includes(name) || !/^[A-Za-z_]\w*$/.test(name)) invalidSyntax(`${names.includes(name) ? "duplicate" : "invalid"} param name "${decodeEscapes(name.replace(/\\(?=[\w$\x80-\ufffc])(?![^(]*\))/g, ""), "\\")}"`, input);
+	names.push(name);
+	return name;
+}
+function segmentWildcards(segment) {
+	const at = [];
+	let depth = 0;
+	for (let i = 0; i < segment.length; i++) {
+		const ch = segment.charCodeAt(i);
+		if (ch === 92) i++;
+		else if (ch === 40) depth++;
+		else if (ch === 41 && depth > 0) depth--;
+		else if (ch === 42 && depth === 0) at.push(i);
+	}
+	return at;
+}
+function scanFirstGroup(path) {
+	let i = 0;
+	let depth = 0;
+	for (; i < path.length; i++) {
+		const c = path.charCodeAt(i);
+		if (c === 92) i++;
+		else if (c === 40) depth++;
+		else if (c === 41 && depth > 0) depth--;
+		else if (c === 123 && depth === 0) break;
+	}
+	if (i >= path.length) return;
+	let j = i + 1;
+	depth = 0;
+	for (; j < path.length; j++) {
+		const c = path.charCodeAt(j);
+		if (c === 92) j++;
+		else if (c === 40) depth++;
+		else if (c === 41 && depth > 0) depth--;
+		else if (c === 125 && depth === 0) break;
+	}
+	if (j >= path.length) return;
+	const mod = path[j + 1];
+	const hasMod = mod === "?" || mod === "+" || mod === "*";
+	return [
+		path.slice(0, i),
+		path.slice(i + 1, j).replace(NAME_CHAR, "\\$&"),
+		path.slice(j + (hasMod ? 2 : 1)).replace(NAME_CHAR, "\\$&"),
+		hasMod ? mod : void 0
+	];
+}
+const NAME_CHAR = /^[\w$\x80-￼]/;
+function expandGroupDelimiters(path, input = path) {
+	if (!path.includes("{")) return;
+	const group = scanFirstGroup(path);
+	if (!group) return;
+	const [pre, body, suf, mod] = group;
+	if (mod === "+" || mod === "*") invalidSyntax(`unsupported \`{}${mod}\``, input);
+	if (mod === "?" && /^(?!\*\*)./.test(pre.slice(pre.lastIndexOf("/") + 1)) && /^:[A-Za-z_]\w*(\([^)]*\))?$/.test(body) && (!suf || suf[0] === "/")) return [pre + body + "?" + suf];
+	const full = joinGroup(joinGroup(pre, body, input), suf, input);
+	const expanded = mod ? [full, joinGroup(pre, suf, input)] : [full];
+	if (expanded.some((e) => DOT_SEGMENT.test(e))) invalidSyntax(DOT_SEGMENT_NEXT_TO, input);
+	if (pre) return expanded;
+	if (mod && body.charCodeAt(0) === 47 && suf && !/^\{?\//.test(suf)) invalidSyntax("text after a leading `{/...}?`", input);
+	return expanded.map(absolutePattern);
+}
+function joinGroup(a, b, input) {
+	const m = /(?<!\\)(\\\\)*((?<!\*\*):\w+|\([^/]*[^\\]\)|\*)([(?+*\uFFFF])$/.exec(a + b[0]);
+	if (m) {
+		if (m[3] === "￿") return a + b;
+		if (m[3] > "(") invalidSyntax(MISPLACED_MODIFIER, input);
+		if (m[2] > "*") a += "([^\\x2f]+?)";
+	}
+	return a + (b.charCodeAt(0) === 65535 ? b.slice(1) : b);
+}
+function getParamRegexp(segment, unnamedStart, names, input, groupKey = toUnnamedGroupKey) {
+	let _i = unnamedStart;
+	let _o;
+	let _s = "", _d = 0, _e = -1, _g = 0, _r = 0;
+	const _c = [];
+	for (let j = 0; j < segment.length; j++) {
+		const c = segment.charCodeAt(j);
+		if (_d === 0) {
+			if (c === 65535) {
+				_s += "￿";
+				continue;
+			}
+			if (c === 58) _e = j + 1 + addName(names, /^[\w$\x80-\ufffc]*/.exec(segment.slice(j + 1))[0], input).length;
+			else if (c === 40 && /[?)]/.test(segment[j + 1])) invalidSyntax("empty or `(?` group", input);
+			else if (c === 63 || c === 43 || c === 42 && j === _e) {
+				if (c === 63 && j === segment.length - 1 && PARAM_MODIFIER.test(segment)) {
+					_s += "?";
+					_r--;
+					continue;
+				}
+				invalidSyntax(MISPLACED_MODIFIER, input);
+			} else if (c === 42) {
+				_e = j + 1;
+				_s += "([^/]*)";
+				_r--;
+				continue;
+			}
+		} else if (c === 58) {
+			_s += "￾:";
+			continue;
+		}
+		if (c === 40) {
+			if (_d++ === 0) _g = j;
+		} else if (c === 41 && _d > 0) {
+			if (--_d === 0) {
+				_e = j + 1;
+				const p = segment.slice(_g + 1, j);
+				if (p !== "[^\\x2f]+?") _c.push(p);
+			}
+		} else if (_d === 0 && c === 65533 && /[34]/.test(segment[j + 1])) {
+			_s += encodeLiteral("{}"[+segment[++j] - 3]);
+			_r += 768;
+			continue;
+		} else if (_d === 0 && /[\0- "#$).<>?[-^`{-}\x7F-\uFFFC]/.test(segment[j])) {
+			const esc = c === 92 && j + 1 < segment.length ? 1 : 0;
+			const ch = segment.slice(j + esc, j + esc + (segment.codePointAt(j + esc) > 65535 ? 2 : 1));
+			const encoded = encodeLiteral(ch);
+			j += esc + ch.length - 1;
+			_s += encoded !== ch ? encoded : esc && ch !== "*" ? "￾" + ch : "\\" + ch;
+			_r += encoded.length * 256;
+			continue;
+		}
+		if (_d === 0 && j >= _e && segment.charCodeAt(j - 1) !== 65533) _r += 256;
+		_s += segment[j];
+	}
+	const regex = decodeEscapes(_s.replace(/(?<!\uFFFE):([A-Za-z_]\w*)(?:\(([^)]*)\))?(\?$)?/g, (m, id, p, o, i, s) => {
+		const group = `(?<${toGroupName(id)}>${p && (p != "[^\\x2f]+?" || !/[(\uFFFF]/.test(s[i + m.length])) ? p : "[^/]+?"})`;
+		return o ? (_o = id, `(?:${group})?`) : group;
+	}).replace(/\((?![?<])/g, () => `(?<${groupKey(_i++)}>`), "￾").replace(/\uFFFE([\s\S])|\uFFFF/g, (_, c = "") => /[.*+?^${}()|[\]\\]/.test(c) ? `\\${c}` : c);
+	const regexp = new RegExp(`^${regex}$`);
+	for (const p of _c) _r += new RegExp(`^(?:${decodeEscapes(p, "\\")})$`).test("") ? -1 : 1;
+	return [
+		regexp,
+		_i,
+		_o,
+		_r
+	];
+}
+function linearRegExp(regexp) {
+	let source = regexp.source;
+	if (!source.includes("[^/]+?)")) return regexp;
+	let head = "";
+	source = source.replace(/(\(\?<\w+>\[\^\/\]\*\))((?:\\[\s\S]|[^\\()]|(?:\(\?:)?\(\?<\w+>\[\^\/\]\+\?\)(?:\)\?)?)*)\$$/, (all, star, rest) => {
+		if (!rest.includes("+?")) return all;
+		head = `(?=[^/]*$(?<=(${rest.replace(/((?:\\[\s\S]|[^\\()])+)(?=\()|(\(\?:)?\(\?<\w+>\[\^\/\]\+\?\)(?:\)\?)?/g, (_, L, opt) => L ? L + upTo(L, true) : opt ? "" : "[^/]")})))`;
+		return `${star}(?=\\1$)${rest}$`;
+	});
+	source = source.replace(/\[\^\/\]\+\?\)((?:\\[\s\S]|[^\\()])*)(?=(?:\(\?:)?\(\?<\w+>\[\^\/\](?:\+\?|\*)\))/g, (_, L) => `[^/]${L && upTo(L)})${L}`);
+	return source === regexp.source ? regexp : new RegExp(`^${head}${source.slice(1)}`);
+}
+const upTo = (L, back) => L.replace(/^\\/, "").length < 2 ? `[^/${L}]*` : back ? `(?:[^/](?<!${L}))*` : `(?:(?!${L})[^/])*`;
+function addRoute(ctx, method = "", path, data) {
+	method = method.toUpperCase();
+	path = absolutePattern(path);
+	checkConstraints(path);
+	const resolved = dotSegments(path);
+	const [route, unnamed] = starGroups(resolved);
+	variants = void 0;
+	_add(ctx, method, route, data, unnamed && expandedRouteId(resolved), path, unnamed);
+}
+let variants;
+function _add(ctx, method, path, data, route, input = path, unnamed = same) {
+	const groupExpanded = expandGroupDelimiters(path, input);
+	if (groupExpanded) {
+		if (groupExpanded[1] !== void 0) {
+			route ??= expandedRouteId(path);
+			variants ??= {};
+		}
+		_add(ctx, method, groupExpanded[0], data, route, input, unnamed);
+		if (groupExpanded[1] !== void 0) _add(ctx, method, groupExpanded[1], data, route, input, /[*(]/.test(path) ? skipGroup(path, input, unnamed) : unnamed);
+		return 0;
+	}
+	path = encodeEscapes(path);
+	const segments = splitRoute(path);
+	const expanded = expandModifiers(segments, input);
+	if (expanded) {
+		route ??= expandedRouteId(path);
+		variants ??= {};
+		let count = 0;
+		for (const p of expanded) count = _add(ctx, method, p, data, route, input, unnamed);
+		return count;
+	}
+	const star = path.includes("*");
+	const split = star ? splitStar(segments, input) : void 0;
+	if (split) {
+		const [routes, join, head] = split;
+		if (routes.length > 1) {
+			route ??= expandedRouteId(path);
+			variants ??= {};
+		}
+		let count = 0;
+		for (const r of routes) count = _insert(ctx, method, r, data, route, input, unnamed, star, r === segments ? -1 : join, head);
+		return count;
+	}
+	return _insert(ctx, method, segments, data, route, input, unnamed, star);
+}
+function _insert(ctx, method, segments, data, route, input, unnamed, star, join = -1, head) {
+	let node = ctx.root;
+	let _unnamedParamIndex = 0;
+	const paramsMap = [];
+	const paramsRegexp = [];
+	let rank = 0;
+	const names = [];
+	let named = false;
+	const captureKey = (n) => {
+		const k = unnamed(n);
+		if (typeof k === "string" && !named) {
+			named = true;
+			addName(names, k, input);
+		}
+		return k;
+	};
+	let suffix;
+	let wildcardIndex = -1;
+	const trail = star ? [] : void 0;
+	for (let i = 0; i < segments.length; i++) {
+		let segment = segments[i];
+		const key = segmentKey(segment);
+		if (key === 2) {
+			if (suffix) oneCatchAll(input);
+			trail?.push(node);
+			if (!node.wildcard) node.wildcard = { key: "**" };
+			node = node.wildcard;
+			const empty = segment.length === 1 || i === join;
+			paramsMap.push([
+				-(i + 1),
+				i === join ? String(captureKey(head ? _unnamedParamIndex - 1 : _unnamedParamIndex++)) : segment.length === 2 ? (addName(names, "_", input), String(unnamed(_unnamedParamIndex++))) : empty ? String(captureKey(_unnamedParamIndex++)) : addName(names, segment.slice(3), input),
+				segment.length === 2 && !(i === join && segments[i + 1]?.charCodeAt(0) !== 42),
+				empty,
+				void 0,
+				i === join
+			]);
+			if (i === segments.length - 1) break;
+			suffix = [];
+			wildcardIndex = i;
+			continue;
+		}
+		if (key === 1) {
+			if (suffix) suffix.push(1);
+			else {
+				trail?.push(node);
+				if (!node.param) node.param = { key: "*" };
+				node = node.param;
+			}
+			if (!/^:[A-Za-z_]\w*$/.test(segment)) {
+				const tail = i === join + 1 && segment.charCodeAt(0) === 42;
+				const [source, nextIndex, inPlace, segmentRank] = getParamRegexp(segment, _unnamedParamIndex - (tail ? 1 : 0), names, input, (n) => toUnnamedGroupKey(captureKey(n)));
+				_unnamedParamIndex = nextIndex;
+				const regexp = paramsRegexp[i] = linearRegExp(source);
+				rank += segmentRank;
+				if (!suffix) node.hasRegexParam = true;
+				paramsMap.push([
+					i,
+					regexp,
+					false,
+					/^(?!(?:[\s\S]*:\w+(?![\w?])){2})(?:\*|:[A-Za-z_]\w*)+\??$/.test(segment),
+					inPlace,
+					tail
+				]);
+			} else paramsMap.push([
+				i,
+				addName(names, segment.slice(1), input),
+				false
+			]);
+			continue;
+		}
+		if (segment.includes("?") && /(^|[^\\])\?/.test(segment)) invalidSyntax(MISPLACED_MODIFIER, input);
+		segment = segments[i] = key;
+		if (suffix) {
+			suffix.push(segment);
+			continue;
+		}
+		trail?.push(node);
+		const child = node.static?.[segment];
+		if (child) node = child;
+		else {
+			const staticNode = { key: segment };
+			if (!node.static) node.static = new NullProtoObj();
+			node.static[segment] = staticNode;
+			node = staticNode;
+		}
+	}
+	if (suffix) {
+		for (const n of trail) n.hasSuffix = true;
+		node = node.suffix ??= { key: "" };
+		for (let j = suffix.length - 1; j >= 0; j--) {
+			const edge = suffix[j];
+			if (edge === 1) node = node.param ??= { key: "*" };
+			else node = (node.static ??= new NullProtoObj())[edge] ??= { key: edge };
+		}
+	}
+	const hasParams = paramsMap.length > 0;
+	const key = "/" + segments.join("/");
+	const methods = node.methods ??= new NullProtoObj();
+	(methods[method] ??= []).push({
+		data: data ?? null,
+		paramsRegexp,
+		paramsMap: hasParams ? paramsMap : void 0,
+		route: route ?? key,
+		suffix: suffix && [wildcardIndex, suffix.length],
+		variants,
+		rank: rank / 2 ** 32
+	});
+	if (!hasParams) ctx.static[segments.length > 0 ? key : ""] = node;
+	return _unnamedParamIndex;
+}
+const same = (index) => index;
+function skipGroup(path, input, unnamed = same) {
+	const [pre, body] = scanFirstGroup(path);
+	if (!/[*(]/.test(body) && !pre.endsWith("*")) return unnamed;
+	const count = (p) => _add(createRouter(), "", p, void 0, void 0, input);
+	const before = count(pre);
+	const skip = count(absolutePattern(joinGroup(pre, body, input))) - before;
+	return skip ? (index) => unnamed(index < before ? index : index + skip) : unnamed;
+}
+function collectSuffix(node, method, segments, start, pos, matches, reverse) {
+	const match = node.methods && methodEntries(node.methods, method, reverse);
+	if (match) {
+		const end = pos + 1;
+		const weighted = [];
+		for (const m of reverse ? match : reverseVariants(match)) {
+			const w = m.suffix[0];
+			let weight = 0;
+			for (const [index, , optional, empty] of m.paramsMap) if (index < 0 && !optional) weight = end > start ? empty ? 2 : 4 : -1;
+			const regexps = m.paramsRegexp;
+			for (let i = 0; i < regexps.length && weight >= 0; i++) if (regexps[i]) weight = regexps[i].test(segments[i > w ? i - w - 1 + end : i]) ? weight + (m.paramsMap.find((e) => e[0] === i)[3] ? 1 : 4) : -1;
+			if (weight >= 0) weighted.push([m, weight + m.rank]);
+		}
+		for (const [m] of weighted.sort((a, b) => a[1] - b[1])) matches.push(m);
+	}
+	if (pos >= start) {
+		if (node.param) collectSuffix(node.param, method, segments, start, pos - 1, matches, reverse);
+		const staticChild = node.static?.[segments[pos]];
+		if (staticChild) collectSuffix(staticChild, method, segments, start, pos - 1, matches, reverse);
+	}
+}
+function hasSuffixMatch(node, method, segments, index) {
+	const trie = node.wildcard?.suffix;
+	if (trie && (trie.param || trie.static?.[segments[segments.length - 1]])) {
+		const matches = [];
+		collectSuffix(trie, method, segments, index, segments.length - 1, matches);
+		if (matches.length > 0) return true;
+	}
+	if (index < segments.length) {
+		const staticChild = node.static?.[segments[index]];
+		if (staticChild?.hasSuffix && hasSuffixMatch(staticChild, method, segments, index + 1)) return true;
+		if (node.param?.hasSuffix && hasSuffixMatch(node.param, method, segments, index + 1)) return true;
+	}
+	return false;
+}
+function rankFromEnd(matches, segments) {
+	const n = segments.length;
+	return matches.sort((a, b) => {
+		for (let p = n - 1; p >= 0; p--) {
+			const x = kindAt(a, n, p);
+			const y = kindAt(b, n, p);
+			if (x < 0 && y < 0) p = ~Math.min(x, y);
+			else if (Math.max(x, 0) !== Math.max(y, 0)) return Math.max(x, 0) - Math.max(y, 0);
+		}
+		return 0;
+	});
+}
+function kindAt(m, n, p) {
+	const suffix = m.suffix;
+	const end = suffix ? n - suffix[1] : n;
+	for (const [index, name, , plain] of m.paramsMap || []) if (index < 0) {
+		if (p >= ~index && p < end) return index;
+	} else if ((suffix && index > suffix[0] ? index - suffix[0] - 1 + end : index) === p) return typeof name === "string" || plain ? 0 : 2;
+	return 3;
+}
+function _findRanked(ctx, method, segments, reverse) {
+	let matches = _findAll(ctx.root, method, segments, 0, [], reverse);
+	if (segments.includes("")) matches = matches.filter((m) => !emptyParam(m, segments));
+	if (ctx.root.hasSuffix && matches.some((m) => m.suffix)) rankFromEnd(matches, segments);
+	return matches;
+}
+function _findAll(node, method, segments, index, matches = [], reverse) {
+	const segment = segments[index];
+	if (node.wildcard) {
+		const match = node.wildcard.methods && methodEntries(node.wildcard.methods, method, reverse);
+		if (match) pushSorted(matches, index < segments.length ? match : match.filter((m) => matchesZero(m)), reverse);
+		if (node.wildcard.suffix) collectSuffix(node.wildcard.suffix, method, segments, index, segments.length - 1, matches, reverse);
+	}
+	if (node.param && index < segments.length) {
+		const start = matches.length;
+		_findAll(node.param, method, segments, index + 1, matches, reverse);
+		if (node.param.hasRegexParam) {
+			for (let r = matches.length - 1; r >= start; r--) if (matches[r].paramsRegexp[index]?.test(segment) === false) matches.splice(r, 1);
+		}
+	}
+	if (index < segments.length) {
+		const staticChild = node.static?.[segment];
+		if (staticChild) _findAll(staticChild, method, segments, index + 1, matches, reverse);
+	}
+	if (index === segments.length && node.methods) {
+		const match = methodEntries(node.methods, method, reverse);
+		if (match) pushSorted(matches, match, reverse);
+	}
+	return matches;
+}
+function pushSorted(matches, match, reverse) {
+	if (match.length > 1) match = (reverse ? match : reverseVariants(match)).map((m) => {
+		let w = m.rank;
+		const { paramsRegexp: rx, paramsMap: pm } = m;
+		for (let i = 0; i < rx.length; i++) if (rx[i]) w += 2;
+		const last = pm?.[pm.length - 1];
+		if (last && !last[2]) w += last[0] < 0 && last[3] ? 1 : 2;
+		return [m, w];
+	}).sort((a, b) => a[1] - b[1]).map((e) => e[0]);
+	for (const m of match) matches.push(m);
+}
+function findRoute(ctx, method = "", path, opts) {
+	if (opts?.normalize) path = normalizePath(path);
+	const slash = path.charCodeAt(path.length - 1) === 47;
+	if (slash) path = path.slice(0, -1);
+	const staticNode = ctx.static[path];
+	if (staticNode && staticNode.methods) {
+		const staticMatch = staticNode.methods[method] || staticNode.methods[""];
+		if (staticMatch !== void 0) return { data: staticMatch[0].data };
+	}
+	const segments = splitPath(path);
+	let match;
+	if (segments.includes("") || ctx.root.hasSuffix && hasSuffixMatch(ctx.root, method, segments, 0)) {
+		const matches = _findRanked(ctx, method, segments, true);
+		match = matches[matches.length - 1];
+	} else match = _lookupTree(ctx.root, method, segments, 0);
+	if (match === void 0) return;
+	if (opts?.params === false) return { data: match.data };
+	return {
+		data: match.data,
+		params: match.paramsMap ? getMatchParams(segments, match.paramsMap, match.suffix, slash) : void 0
+	};
+}
+function _lookupTree(node, method, segments, index) {
+	if (index === segments.length) {
+		if (node.methods) {
+			const match = _selectMatcher(node.methods, method, segments);
+			if (match) return match;
+		}
+		return node.wildcard?.methods ? _selectMatcher(node.wildcard.methods, method, segments, true) : void 0;
+	}
+	const segment = segments[index];
+	if (node.static) {
+		const staticChild = node.static[segment];
+		if (staticChild) {
+			const match = _lookupTree(staticChild, method, segments, index + 1);
+			if (match) return match;
+		}
+	}
+	if (node.param) {
+		const match = _lookupTree(node.param, method, segments, index + 1);
+		if (match) return match;
+	}
+	if (node.wildcard && node.wildcard.methods) return _selectMatcher(node.wildcard.methods, method, segments);
+}
+function _selectMatcher(methods, method, segments, optionalOnly) {
+	let any = methods[""];
+	const match = methods[method] || any;
+	if (!match) return;
+	if (match === any) any = void 0;
+	const first = match[0];
+	if (!any && match.length === 1 && first.paramsRegexp.length === 0) return !optionalOnly || matchesZero(first) ? first : void 0;
+	let best;
+	let bestWeight = -1;
+	let list = match;
+	for (; list; list = list === any ? void 0 : any) for (const m of list) {
+		const last = m.paramsMap?.[m.paramsMap.length - 1];
+		if (optionalOnly && !matchesZero(m)) continue;
+		let weight = m.rank + (last && !last[2] ? last[0] < 0 && last[3] ? 1 : 2 : 0);
+		const regexps = m.paramsRegexp;
+		for (let i = 0; i < regexps.length; i++) if (regexps[i]) {
+			if (!regexps[i].test(segments[i])) {
+				weight = -1;
+				break;
+			}
+			weight += 2;
+		}
+		if (weight > bestWeight) {
+			best = m;
+			bestWeight = weight;
+		}
+	}
+	return best;
+}
+//#endregion
+//#region node_modules/srvx/dist/_chunks/_url.mjs
+function lazyInherit(target, source, sourceKey) {
+	for (const key of [...Object.getOwnPropertyNames(source), ...Object.getOwnPropertySymbols(source)]) {
+		if (key === "constructor") continue;
+		const targetDesc = Object.getOwnPropertyDescriptor(target, key);
+		const desc = Object.getOwnPropertyDescriptor(source, key);
+		let modified = false;
+		if (desc.get) {
+			modified = true;
+			desc.get = targetDesc?.get || function() {
+				return this[sourceKey][key];
+			};
+		}
+		if (desc.set) {
+			modified = true;
+			desc.set = targetDesc?.set || function(value) {
+				this[sourceKey][key] = value;
+			};
+		}
+		if (!targetDesc?.value && typeof desc.value === "function") {
+			modified = true;
+			desc.value = function(...args) {
+				return this[sourceKey][key](...args);
+			};
+		}
+		if (modified) Object.defineProperty(target, key, desc);
+	}
+}
+const _needsNormRE = /(?:(?:^|\/)(?:\.|\.\.|%2e|%2e\.|\.%2e|%2e%2e)(?:\/|$))|[\\^#"<>{}`\x00-\x20\x7f-\uffff]/i;
+const _searchNeedsNormRE = /[#"'<>\x00-\x20\x7f-\uffff]/;
+const FastURL = /* @__PURE__ */ (() => {
+	const NativeURL = globalThis.URL;
+	const NativeSearchParams = globalThis.URLSearchParams;
+	const FastURLSearchParams = class URLSearchParams {
+		#owner;
+		#params;
+		constructor(owner) {
+			this.#owner = owner;
+		}
+		static [Symbol.hasInstance](val) {
+			return val instanceof NativeSearchParams;
+		}
+		_adopt(params) {
+			this.#params = params;
+		}
+		get _params() {
+			if (!this.#params) {
+				const search = this.#owner.search;
+				this.#params ??= new NativeSearchParams(search);
+			}
+			return this.#params;
+		}
+		#mutable() {
+			this.#owner._url;
+			return this.#params;
+		}
+		append(name, value) {
+			this.#mutable().append(name, value);
+		}
+		set(name, value) {
+			this.#mutable().set(name, value);
+		}
+		delete(name, value) {
+			this.#mutable().delete(name, value);
+		}
+		sort() {
+			this.#mutable().sort();
+		}
+	};
+	lazyInherit(FastURLSearchParams.prototype, NativeSearchParams.prototype, "_params");
+	Object.setPrototypeOf(FastURLSearchParams.prototype, NativeSearchParams.prototype);
+	Object.setPrototypeOf(FastURLSearchParams, NativeSearchParams);
+	const FastURL = class URL {
+		#url;
+		#href;
+		#protocol;
+		#host;
+		#pathname;
+		#search;
+		#searchParams;
+		#pos;
+		constructor(url) {
+			if (typeof url === "string") {
+				const isOriginForm = url[0] === "/";
+				if (isOriginForm && !_searchNeedsNormRE.test(url)) this.#href = `http://localhost${url}`;
+				else this.#url = new NativeURL(isOriginForm ? `http://localhost${url}` : url);
+			} else if (_needsNormRE.test(url.pathname) || url.search && _searchNeedsNormRE.test(url.search)) this.#url = new NativeURL(`${url.protocol || "http:"}//${url.host || "localhost"}${url.pathname}${url.search || ""}`);
+			else {
+				this.#protocol = url.protocol;
+				this.#host = url.host;
+				this.#pathname = url.pathname;
+				this.#search = url.search;
+			}
+		}
+		static [Symbol.hasInstance](val) {
+			return val instanceof NativeURL;
+		}
+		get _url() {
+			if (this.#url) return this.#url;
+			this.#url = new NativeURL(this.href);
+			this.#href = void 0;
+			this.#protocol = void 0;
+			this.#host = void 0;
+			this.#pathname = void 0;
+			this.#search = void 0;
+			this.#pos = void 0;
+			this.#searchParams?._adopt(this.#url.searchParams);
+			return this.#url;
+		}
+		get href() {
+			if (this.#url) return this.#url.href;
+			if (!this.#href) this.#href = `${this.#protocol || "http:"}//${this.#host || "localhost"}${this.#pathname || "/"}${this.#search || ""}`;
+			return this.#href;
+		}
+		#getPos() {
+			if (!this.#pos) {
+				const url = this.href;
+				const protoIndex = url.indexOf("://");
+				const pathnameIndex = protoIndex === -1 ? -1 : url.indexOf("/", protoIndex + 4);
+				const qIndex = pathnameIndex === -1 ? -1 : url.indexOf("?", pathnameIndex);
+				this.#pos = [
+					protoIndex,
+					pathnameIndex,
+					qIndex
+				];
+			}
+			return this.#pos;
+		}
+		get pathname() {
+			if (this.#url) return this.#url.pathname;
+			if (this.#pathname === void 0) {
+				const [, pathnameIndex, queryIndex] = this.#getPos();
+				if (pathnameIndex === -1) return this._url.pathname;
+				this.#pathname = this.href.slice(pathnameIndex, queryIndex === -1 ? void 0 : queryIndex);
+			}
+			return this.#pathname;
+		}
+		get search() {
+			if (this.#url) return this.#url.search;
+			if (this.#search === void 0) {
+				const [, pathnameIndex, queryIndex] = this.#getPos();
+				if (pathnameIndex === -1) return this._url.search;
+				const url = this.href;
+				this.#search = queryIndex === -1 || queryIndex === url.length - 1 ? "" : url.slice(queryIndex);
+			}
+			return this.#search;
+		}
+		get searchParams() {
+			if (this.#searchParams) return this.#searchParams;
+			if (this.#url) return this.#url.searchParams;
+			return this.#searchParams = new FastURLSearchParams(this);
+		}
+		get protocol() {
+			if (this.#url) return this.#url.protocol;
+			if (this.#protocol === void 0) {
+				const [protocolIndex] = this.#getPos();
+				if (protocolIndex === -1) return this._url.protocol;
+				const url = this.href;
+				this.#protocol = url.slice(0, protocolIndex + 1);
+			}
+			return this.#protocol;
+		}
+		get hash() {
+			if (this.#url) return this.#url.hash;
+			return "";
+		}
+		toString() {
+			return this.href;
+		}
+		toJSON() {
+			return this.href;
+		}
+	};
+	lazyInherit(FastURL.prototype, NativeURL.prototype, "_url");
+	Object.setPrototypeOf(FastURL.prototype, NativeURL.prototype);
+	Object.setPrototypeOf(FastURL, NativeURL);
+	return FastURL;
+})();
+//#endregion
+//#region node_modules/srvx/dist/body-limit.mjs
+function limitRequestBody(request, maxRequestBodySize, options) {
+	if (!request.body) return request;
+	const createError = options?.createError ?? createBodyTooLargeError;
+	const contentLengthHeader = request.headers.get("content-length");
+	const contentLength = contentLengthHeader && /^\d+$/.test(contentLengthHeader) ? Number(contentLengthHeader) : NaN;
+	const initiallyUsed = request.bodyUsed;
+	const overLimit = contentLength > maxRequestBodySize;
+	if (overLimit) request.body.cancel(createError(maxRequestBodySize)).catch(() => {});
+	let limited;
+	let nativeRequest;
+	const limitedBody = () => limited ??= new Response(overLimit ? erroredStream$1(createError(maxRequestBodySize)) : limitBodyStream(request.body, maxRequestBodySize, options));
+	return new Proxy(request, { get(target, prop) {
+		if (prop === "body") return limitedBody().body;
+		if (prop === "bodyUsed") return initiallyUsed || (limited?.bodyUsed ?? false);
+		if (typeof prop === "string" && bodyReadMethods.has(prop)) return () => limitedBody()[prop]();
+		if (prop === "_request" && "_request" in target) return nativeRequest ??= new Request(target.url, {
+			method: target.method,
+			headers: target.headers,
+			signal: target.signal,
+			body: limitedBody().body,
+			duplex: "half"
+		});
+		if (prop === "clone") return () => limitRequestBody(target.clone(), maxRequestBodySize, options);
+		const value = Reflect.get(target, prop, target);
+		return typeof value === "function" ? value.bind(target) : value;
+	} });
+}
+function limitBodyStream(stream, maxRequestBodySize, options) {
+	const createError = options?.createError ?? createBodyTooLargeError;
+	const reader = stream.getReader();
+	let size = 0;
+	return new ReadableStream({
+		async pull(controller) {
+			const { done, value } = await reader.read();
+			if (done) {
+				controller.close();
+				return;
+			}
+			size += value.byteLength;
+			if (size > maxRequestBodySize) {
+				const error = createError(maxRequestBodySize);
+				reader.cancel(error).catch(() => {});
+				controller.error(error);
+				return;
+			}
+			controller.enqueue(value);
+		},
+		cancel(reason) {
+			return reader.cancel(reason);
+		}
+	});
+}
+const bodyReadMethods = /* @__PURE__ */ new Set([
+	"arrayBuffer",
+	"blob",
+	"bytes",
+	"formData",
+	"json",
+	"text"
+]);
+var BodyTooLargeError = class extends Error {
+	code = "ERR_BODY_TOO_LARGE";
+	statusCode = 413;
+	status = 413;
+	statusText = "Content Too Large";
+	get name() {
+		return "HTTPError";
+	}
+	toJSON() {
+		return {
+			status: this.status,
+			statusText: this.statusText,
+			message: this.message
+		};
+	}
+};
+function createBodyTooLargeError(maxRequestBodySize) {
+	return new BodyTooLargeError(`Request body exceeds the maximum allowed size of ${maxRequestBodySize} bytes.`);
+}
+function erroredStream$1(error) {
+	return new ReadableStream({ start(controller) {
+		controller.error(error);
+	} });
+}
+//#endregion
+//#region node_modules/srvx/dist/_chunks/_trust-proxy.mjs
+function isTrustedProxy(trustProxy, remoteAddress) {
+	if (trustProxy === void 0 || trustProxy === false) return false;
+	if (trustProxy === true) return true;
+	if (trustProxy === "loopback") return isLoopbackAddress(remoteAddress);
+	if (remoteAddress === void 0) return false;
+	if (trustProxy.includes(remoteAddress)) return true;
+	const mapped = ipv4FromMapped(remoteAddress);
+	return mapped !== void 0 && trustProxy.includes(mapped);
+}
+function ipv4FromMapped(address) {
+	return address.startsWith("::ffff:") && address.includes(".") ? address.slice(7) : void 0;
+}
+function isLoopbackAddress(address) {
+	return !!address && (address === "::1" || address.startsWith("127.") || address.startsWith("::ffff:127."));
+}
+const HOST_RE = /^(\[(?:[A-Fa-f0-9:.]+)\]|(?:[A-Za-z0-9_-]+\.)*[A-Za-z0-9_-]+|(?:\d{1,3}\.){3}\d{1,3})(:\d{1,5})?$/;
+function forwardedList(value) {
+	if (!value) return [];
+	const raw = Array.isArray(value) ? value.join(",") : value;
+	const out = [];
+	for (const part of raw.split(",")) {
+		const entry = part.trim();
+		if (entry) out.push(entry);
+	}
+	return out;
+}
+function resolveClientIP(trustProxy, peer, forwardedFor) {
+	if (!isTrustedProxy(trustProxy, peer)) return peer;
+	const list = forwardedList(forwardedFor);
+	for (let i = list.length - 1; i >= 0; i--) if (!isTrustedProxy(trustProxy, list[i])) return list[i];
+	return list.length > 0 ? list[0] : peer;
+}
+function trustedHops(trustProxy, peer, forwardedFor) {
+	if (!isTrustedProxy(trustProxy, peer)) return 0;
+	const list = forwardedList(forwardedFor);
+	let hops = 1;
+	for (let i = list.length - 1; i >= 0; i--) {
+		if (!isTrustedProxy(trustProxy, list[i])) return hops;
+		hops++;
+	}
+	return Number.POSITIVE_INFINITY;
+}
+function forwardedHopValue(value, hops) {
+	if (hops <= 0) return;
+	const list = forwardedList(value);
+	if (list.length === 0) return;
+	return list[Math.max(0, list.length - hops)];
+}
+//#endregion
+//#region node_modules/srvx/dist/adapters/node.mjs
+function sendNodeResponse(nodeRes, webRes) {
+	try {
+		return _sendNodeResponse(nodeRes, webRes, false) || Promise.resolve();
+	} catch (error) {
+		return Promise.reject(error);
+	}
+}
+function handleSendError(nodeRes, error, silent) {
+	if (!silent) console.error("[srvx] Failed to send response:", error);
+	failResponse(nodeRes);
+}
+function failResponse(nodeRes) {
+	if (nodeRes.writableEnded) return;
+	if (nodeRes.headersSent) nodeRes.destroy();
+	else {
+		nodeRes.statusCode = 500;
+		if (nodeRes.req?.httpVersion !== "2.0") nodeRes.statusMessage = "";
+		nodeRes.end();
+	}
+}
+function _sendNodeResponse(nodeRes, webRes, detached) {
+	if (!webRes) {
+		nodeRes.statusCode = 500;
+		return endNodeResponse(nodeRes, detached);
+	}
+	if (webRes._toNodeResponse) {
+		const res = webRes._toNodeResponse();
+		if (res.body) {
+			if (res.body instanceof ReadableStream) {
+				writeHead(nodeRes, res.status, res.statusText, res.headers);
+				return streamBody(res.body, nodeRes);
+			} else if (typeof res.body?.pipe === "function") return pipeBody(res.body, nodeRes, res.status, res.statusText, res.headers);
+			writeHead(nodeRes, res.status, res.statusText, res.headers);
+			nodeRes.write(res.body);
+		} else writeHead(nodeRes, res.status, res.statusText, res.headers);
+		return endNodeResponse(nodeRes, detached);
+	}
+	const rawHeaders = [];
+	for (const [key, value] of webRes.headers) rawHeaders.push(key, value);
+	writeHead(nodeRes, webRes.status, webRes.statusText, rawHeaders);
+	return webRes.body ? streamBody(webRes.body, nodeRes) : endNodeResponse(nodeRes, detached);
+}
+function writeHead(nodeRes, status, statusText, rawHeaders) {
+	if (!nodeRes.headersSent) {
+		if (nodeRes.req?.httpVersion === "2.0") nodeRes.writeHead(status, rawHeaders);
+		else nodeRes.writeHead(status, safeStatusText(statusText), rawHeaders);
+	}
+}
+const INVALID_REASON_PHRASE_RE = /[^\t\u0020-\u007E\u0080-\u00FF]/g;
+function safeStatusText(statusText) {
+	return typeof statusText === "string" && statusText ? statusText.replace(INVALID_REASON_PHRASE_RE, "") : statusText;
+}
+function endNodeResponse(nodeRes, detached) {
+	if (detached) {
+		nodeRes.end();
+		return;
+	}
+	return new Promise((resolve) => nodeRes.end(resolve));
+}
+function pipeBody(stream, nodeRes, status, statusText, headers) {
+	if (nodeRes.destroyed) {
+		stream.destroy?.();
+		return;
+	}
+	if (nodeRes.req?.method === "HEAD") {
+		if (typeof stream.destroy === "function") stream.destroy();
+		else stream.abort?.();
+		writeHead(nodeRes, status, statusText, headers);
+		return endNodeResponse(nodeRes);
+	}
+	if (typeof stream.on !== "function" || typeof stream.destroy !== "function") {
+		writeHead(nodeRes, status, statusText, headers);
+		stream.pipe(nodeRes);
+		return new Promise((resolve) => nodeRes.on("close", resolve));
+	}
+	if (stream.destroyed) {
+		writeHead(nodeRes, 500, "Internal Server Error", []);
+		return endNodeResponse(nodeRes);
+	}
+	return new Promise((resolve) => {
+		function cleanup() {
+			stream.off("error", onEarlyError);
+			stream.off("readable", onReadable);
+			nodeRes.off("close", onResClose);
+		}
+		function onEarlyError() {
+			cleanup();
+			stream.destroy();
+			writeHead(nodeRes, 500, "Internal Server Error", []);
+			endNodeResponse(nodeRes).then(resolve);
+		}
+		function onReadable() {
+			cleanup();
+			if (nodeRes.destroyed) {
+				stream.destroy();
+				return resolve();
+			}
+			writeHead(nodeRes, status, statusText, headers);
+			pipeline(stream, nodeRes).catch(() => {}).then(() => resolve());
+		}
+		function onResClose() {
+			cleanup();
+			stream.destroy();
+			resolve();
+		}
+		stream.once("error", onEarlyError);
+		stream.once("readable", onReadable);
+		nodeRes.once("close", onResClose);
+	});
+}
+function streamBody(stream, nodeRes) {
+	if (nodeRes.destroyed) {
+		stream.cancel().catch(() => {});
+		return;
+	}
+	if (nodeRes.req?.method === "HEAD") {
+		stream.cancel().catch(() => {});
+		return endNodeResponse(nodeRes);
+	}
+	const reader = stream.getReader();
+	function streamCancel(error) {
+		reader.cancel(error).catch(() => {});
+		if (error) nodeRes.destroy(error);
+	}
+	function streamHandle({ done, value }) {
+		try {
+			if (done) nodeRes.end();
+			else if (nodeRes.write(value)) reader.read().then(streamHandle, streamCancel);
+			else nodeRes.once("drain", () => reader.read().then(streamHandle, streamCancel));
+		} catch (error) {
+			streamCancel(error instanceof Error ? error : void 0);
+		}
+	}
+	nodeRes.on("close", streamCancel);
+	nodeRes.on("error", streamCancel);
+	reader.read().then(streamHandle, streamCancel);
+	return reader.closed.catch(streamCancel).finally(() => {
+		nodeRes.off("close", streamCancel);
+		nodeRes.off("error", streamCancel);
+	});
+}
+var NodeRequestURL = class extends FastURL {
+	constructor({ req, hops = 0 }) {
+		const path = req.url || "/";
+		const trusted = hops > 0;
+		const forwardedHost = forwardedHopValue(req.headers["x-forwarded-host"], hops);
+		let host = (forwardedHost && HOST_RE.test(forwardedHost) ? forwardedHost : void 0) || req.headers.host || req.headers[":authority"];
+		if (host && !HOST_RE.test(host)) host = "_invalid_";
+		else if (!host) {
+			if (req.socket) host = `${req.socket.localFamily === "IPv6" ? "[" + req.socket.localAddress + "]" : req.socket.localAddress}:${req.socket?.localPort || "80"}`;
+			else host = "localhost";
+		}
+		const forwardedProto = forwardedHopValue(req.headers["x-forwarded-proto"], hops);
+		const protocol = req.socket?.encrypted || forwardedProto === "https" || trusted && req.headers[":scheme"] === "https" ? "https:" : "http:";
+		if (path[0] === "/") {
+			const qIndex = path.indexOf("?");
+			super({
+				protocol,
+				host,
+				pathname: qIndex === -1 ? path : path.slice(0, qIndex) || "/",
+				search: qIndex === -1 ? "" : path.slice(qIndex) || ""
+			});
+		} else if (path === "*") super({
+			protocol,
+			host,
+			pathname: "/*",
+			search: ""
+		});
+		else {
+			const target = URL.canParse(path) ? new URL(path) : void 0;
+			if (target) {
+				const targetHost = target.host;
+				const targetPath = target.pathname;
+				super({
+					protocol,
+					host: targetHost ? HOST_RE.test(targetHost) ? targetHost : "_invalid_" : host,
+					pathname: targetPath ? targetPath[0] === "/" ? targetPath : `/${targetPath}` : "/",
+					search: target.search
+				});
+			} else super({
+				protocol,
+				host,
+				pathname: "/",
+				search: ""
+			});
+		}
+	}
+};
+const _nonJoinedHeaders = /* @__PURE__ */ new Set([
+	"age",
+	"authorization",
+	"content-length",
+	"content-type",
+	"etag",
+	"expires",
+	"from",
+	"host",
+	"if-modified-since",
+	"if-unmodified-since",
+	"last-modified",
+	"location",
+	"max-forwards",
+	"proxy-authorization",
+	"referer",
+	"retry-after",
+	"server",
+	"user-agent"
+]);
+const _validHeaderNameRE = /^[!#$%&'*+\-.^_`|~\dA-Za-z]+$/;
+function _isRepeated(rawHeaders, lowerName) {
+	let seen = false;
+	for (let i = 0; i < rawHeaders.length; i += 2) {
+		const key = rawHeaders[i];
+		if (key.length === lowerName.length && key.toLowerCase() === lowerName) {
+			if (seen) return true;
+			seen = true;
+		}
+	}
+	return false;
+}
+const NodeRequestHeaders = /* @__PURE__ */ (() => {
+	const NativeHeaders = globalThis.Headers;
+	class Headers {
+		#req;
+		#headers;
+		constructor(req) {
+			this.#req = req;
+		}
+		static [Symbol.hasInstance](val) {
+			return val instanceof NativeHeaders;
+		}
+		_adopt(headers) {
+			this.#headers = headers;
+		}
+		get _headers() {
+			if (!this.#headers) {
+				const headers = new NativeHeaders();
+				const rawHeaders = this.#req.rawHeaders;
+				const len = rawHeaders.length;
+				for (let i = 0; i < len; i += 2) {
+					const key = rawHeaders[i];
+					if (key.charCodeAt(0) === 58) continue;
+					const value = rawHeaders[i + 1];
+					headers.append(key, value);
+				}
+				this.#headers = headers;
+			}
+			return this.#headers;
+		}
+		get(name) {
+			if (this.#headers) return this.#headers.get(name);
+			const lower = name.toLowerCase();
+			if (lower.charCodeAt(0) === 58) return this._headers.get(name);
+			const value = this.#req.headers[lower];
+			if (typeof value === "string") return _nonJoinedHeaders.has(lower) && _isRepeated(this.#req.rawHeaders, lower) ? this._headers.get(name) : value;
+			if (Array.isArray(value)) return value.join(", ");
+			return lower !== "__proto__" && _validHeaderNameRE.test(name) ? null : this._headers.get(name);
+		}
+		has(name) {
+			if (this.#headers) return this.#headers.has(name);
+			const lower = name.toLowerCase();
+			if (lower.charCodeAt(0) === 58) return this._headers.has(name);
+			if (Object.hasOwn(this.#req.headers, lower)) return true;
+			return lower !== "__proto__" && _validHeaderNameRE.test(name) ? false : this._headers.has(name);
+		}
+		getSetCookie() {
+			if (this.#headers) return this.#headers.getSetCookie();
+			const value = this.#req.headers["set-cookie"];
+			return Array.isArray(value) ? value.slice() : value ? [value] : [];
+		}
+		entries() {
+			return this._headers.entries();
+		}
+		[Symbol.iterator]() {
+			return this.entries();
+		}
+	}
+	lazyInherit(Headers.prototype, NativeHeaders.prototype, "_headers");
+	Object.setPrototypeOf(Headers, NativeHeaders);
+	Object.setPrototypeOf(Headers.prototype, NativeHeaders.prototype);
+	return Headers;
+})();
+const kNativeRequest = /* @__PURE__ */ Symbol.for("srvx.nativeRequest");
+function bodyUnusable() {
+	return /* @__PURE__ */ new TypeError("Body is unusable: Body has already been read");
+}
+function abortError$1() {
+	return new DOMException("The request was aborted.", "AbortError");
+}
+function erroredStream(error) {
+	return new ReadableStream({ start(controller) {
+		controller.error(error);
+	} });
+}
+function isClientGone(req) {
+	return req.aborted || !!req.errored || req.destroyed && !req.complete;
+}
+function isBodySourceFinished(req) {
+	return isClientGone(req) || req.destroyed || req.readableEnded;
+}
+const NodeRequest = /* @__PURE__ */ (() => {
+	const NativeRequest = getNativeRequest();
+	class Request {
+		runtime;
+		waitUntil;
+		#req;
+		#url;
+		#bodyStream;
+		#bodyUsed = false;
+		#request;
+		#headers;
+		#abortController;
+		#maxRequestBodySize;
+		#trustProxy;
+		#ip;
+		#ipResolved = false;
+		#remoteAddress;
+		#remoteResolved = false;
+		#hops;
+		constructor(ctx) {
+			this.#req = ctx.req;
+			this.#maxRequestBodySize = ctx.maxRequestBodySize;
+			this.#trustProxy = ctx.trustProxy;
+			this.runtime = {
+				name: "node",
+				node: ctx
+			};
+		}
+		static [Symbol.hasInstance](val) {
+			return val instanceof NativeRequest;
+		}
+		#remoteAddr() {
+			if (!this.#remoteResolved) {
+				this.#remoteResolved = true;
+				this.#remoteAddress = this.#req.socket?.remoteAddress;
+			}
+			return this.#remoteAddress;
+		}
+		#resolveHops() {
+			if (this.#hops === void 0) this.#hops = trustedHops(this.#trustProxy, this.#remoteAddr(), this.#req.headers["x-forwarded-for"]);
+			return this.#hops;
+		}
+		get ip() {
+			if (this.#ipResolved) return this.#ip;
+			this.#ipResolved = true;
+			return this.#ip = resolveClientIP(this.#trustProxy, this.#remoteAddr(), this.#req.headers["x-forwarded-for"]);
+		}
+		get method() {
+			if (this.#request) return this.#request.method;
+			return this.#req.method || "GET";
+		}
+		get _url() {
+			return this.#url ||= new NodeRequestURL({
+				req: this.#req,
+				hops: this.#resolveHops()
+			});
+		}
+		set _url(url) {
+			this.#url = url;
+		}
+		get url() {
+			if (this.#request) return this.#request.url;
+			return this._url.href;
+		}
+		get headers() {
+			return this.#headers ||= new NodeRequestHeaders(this.#req);
+		}
+		get _abortController() {
+			if (!this.#abortController) {
+				this.#abortController = new AbortController();
+				const { req, res } = this.runtime.node;
+				const abortController = this.#abortController;
+				const abort = (err) => abortController.abort?.(err);
+				if (res) {
+					const onClose = () => {
+						const reqError = req.errored;
+						if (reqError) abort(reqError);
+						else if (!res.writableEnded) abort();
+					};
+					res.once("close", onClose);
+					if (res.destroyed || isClientGone(req)) onClose();
+				} else {
+					const onClose = () => {
+						if (!req.complete || req.aborted) abort();
+					};
+					req.once("close", onClose);
+					if (isClientGone(req)) onClose();
+				}
+			}
+			return this.#abortController;
+		}
+		get signal() {
+			return this.#request ? this.#request.signal : this._abortController.signal;
+		}
+		#hasBody() {
+			const method = this.method;
+			return method !== "GET" && method !== "HEAD";
+		}
+		get body() {
+			if (this.#request) return this.#request.body;
+			if (this.#bodyStream === void 0) {
+				let stream = null;
+				if (this.#hasBody() && !this.#bodyUsed) {
+					if (isBodySourceFinished(this.#req)) stream = erroredStream(this.#bodyError());
+					else stream = Readable.toWeb(this.#req);
+				}
+				if (stream && this.#maxRequestBodySize !== void 0) stream = limitBodyStream(stream, this.#maxRequestBodySize);
+				this.#bodyStream = stream;
+			}
+			return this.#bodyStream;
+		}
+		get bodyUsed() {
+			if (this.#isBodyUsed()) return true;
+			return this.#request ? this.#request.bodyUsed : false;
+		}
+		#isBodyUsed() {
+			if (!this.#bodyUsed && this.#bodyStream && Readable.isDisturbed(this.#bodyStream)) this.#bodyUsed = true;
+			return this.#bodyUsed;
+		}
+		#bodyError() {
+			const signal = this._abortController.signal;
+			if (signal.aborted) return signal.reason;
+			return this.#req.errored || (isClientGone(this.#req) ? abortError$1() : bodyUnusable());
+		}
+		#readBuffered() {
+			if ("rawBody" in this.#req && Buffer.isBuffer(this.#req.rawBody)) return readBody$1(this.#req, this.#maxRequestBodySize);
+			if (isBodySourceFinished(this.#req)) return Promise.reject(this.#bodyError());
+			return readBody$1(this.#req, this.#maxRequestBodySize);
+		}
+		text() {
+			if (this.#isBodyUsed()) return Promise.reject(bodyUnusable());
+			if (this.#request) return this.#request.text();
+			if (!this.#hasBody()) return Promise.resolve("");
+			this.#bodyUsed = true;
+			if (this.#bodyStream !== void 0) try {
+				return new Response(this.#bodyStream).text();
+			} catch (error) {
+				return Promise.reject(error);
+			}
+			return this.#readBuffered().then((buf) => buf.toString());
+		}
+		json() {
+			if (this.#isBodyUsed()) return Promise.reject(bodyUnusable());
+			if (this.#request) return this.#request.json();
+			if (!this.#hasBody()) return Promise.resolve().then(() => JSON.parse(""));
+			this.#bodyUsed = true;
+			if (this.#bodyStream !== void 0) try {
+				return new Response(this.#bodyStream).json();
+			} catch (error) {
+				return Promise.reject(error);
+			}
+			return this.#readBuffered().then((buf) => JSON.parse(buf.toString()));
+		}
+		arrayBuffer() {
+			return this.#consumeNative("arrayBuffer");
+		}
+		bytes() {
+			return this.#consumeNative("bytes");
+		}
+		blob() {
+			return this.#consumeNative("blob");
+		}
+		formData() {
+			return this.#consumeNative("formData");
+		}
+		#consumeNative(method) {
+			if (this.#isBodyUsed()) return Promise.reject(bodyUnusable());
+			try {
+				return this._request[method]();
+			} catch (error) {
+				return Promise.reject(error);
+			}
+		}
+		get _request() {
+			if (!this.#request) {
+				const body = this.#isBodyUsed() ? null : this.body;
+				this.#request = new NativeRequest(this.url, {
+					method: this.method,
+					headers: this.headers,
+					signal: this._abortController.signal,
+					body,
+					duplex: body ? "half" : void 0
+				});
+				this.#headers._adopt(this.#request.headers);
+				this.#bodyStream = void 0;
+			}
+			return this.#request;
+		}
+	}
+	lazyInherit(Request.prototype, NativeRequest.prototype, "_request");
+	Object.setPrototypeOf(Request.prototype, NativeRequest.prototype);
+	return Request;
+})();
+function readBody$1(req, maxRequestBodySize) {
+	if ("rawBody" in req && Buffer.isBuffer(req.rawBody)) {
+		if (maxRequestBodySize !== void 0 && req.rawBody.length > maxRequestBodySize) return Promise.reject(createBodyTooLargeError(maxRequestBodySize));
+		return Promise.resolve(req.rawBody);
+	}
+	return new Promise((resolve, reject) => {
+		const chunks = [];
+		let size = 0;
+		const cleanup = () => {
+			req.off("data", onData);
+			req.off("end", onEnd);
+			req.off("error", onError);
+			req.off("close", onClose);
+		};
+		const onData = (chunk) => {
+			if (maxRequestBodySize !== void 0) {
+				size += chunk.length;
+				if (size > maxRequestBodySize) {
+					cleanup();
+					req.pause?.();
+					reject(createBodyTooLargeError(maxRequestBodySize));
+					return;
+				}
+			}
+			chunks.push(chunk);
+		};
+		const onError = (err) => {
+			cleanup();
+			reject(err);
+		};
+		const onEnd = () => {
+			cleanup();
+			if (isClientGone(req)) {
+				reject(req.errored || abortError$1());
+				return;
+			}
+			resolve(chunks.length === 1 ? chunks[0] : Buffer.concat(chunks));
+		};
+		const onClose = () => {
+			cleanup();
+			reject(req.errored || abortError$1());
+		};
+		req.on("data", onData).once("end", onEnd).once("error", onError).once("close", onClose);
+	});
+}
+function getNativeRequest() {
+	let R = globalThis[kNativeRequest] || globalThis.Request;
+	while (R?._srvx) R = Object.getPrototypeOf(R);
+	return globalThis[kNativeRequest] ??= R;
+}
+const NodeResponse = /* @__PURE__ */ (() => {
+	const NativeResponse = globalThis.Response;
+	class NodeResponse {
+		#body;
+		#init;
+		#headers;
+		#response;
+		constructor(body, init) {
+			this.#body = body;
+			this.#init = init;
+		}
+		static [Symbol.hasInstance](val) {
+			return val instanceof NativeResponse;
+		}
+		static json(data, init) {
+			const body = JSON.stringify(data);
+			if (body === void 0) throw new TypeError("Value is not JSON serializable");
+			let headers = init?.headers;
+			if (!headers) headers = { "content-type": "application/json" };
+			else {
+				const merged = new Headers(headers);
+				if (!merged.has("content-type")) merged.set("content-type", "application/json");
+				headers = merged;
+			}
+			return new NodeResponse(body, init ? {
+				...init,
+				headers
+			} : { headers });
+		}
+		get status() {
+			return this.#response?.status || this.#init?.status || 200;
+		}
+		get statusText() {
+			return this.#response?.statusText || this.#init?.statusText || "";
+		}
+		get headers() {
+			if (this.#response) return this.#response.headers;
+			if (this.#headers) return this.#headers;
+			return this.#headers = new Headers(this.#init?.headers);
+		}
+		get ok() {
+			if (this.#response) return this.#response.ok;
+			const status = this.status;
+			return status >= 200 && status < 300;
+		}
+		get _response() {
+			if (this.#response) return this.#response;
+			let body = this.#body;
+			if (body && typeof body.pipe === "function" && !(body instanceof Readable)) {
+				const stream = new PassThrough();
+				body.pipe(stream);
+				const abort = body.abort;
+				if (abort) stream.once("close", () => abort());
+				body = stream;
+			}
+			this.#response = new NativeResponse(body, this.#headers ? {
+				...this.#init,
+				headers: this.#headers
+			} : this.#init);
+			this.#init = void 0;
+			this.#headers = void 0;
+			this.#body = void 0;
+			return this.#response;
+		}
+		_toNodeResponse() {
+			const status = this.status;
+			const statusText = this.statusText;
+			let body;
+			let contentType;
+			let contentLength;
+			if (this.#response) body = this.#response.body;
+			else if (this.#body != null) {
+				if (this.#body instanceof ReadableStream) body = this.#body;
+				else if (typeof this.#body === "string") {
+					body = this.#body;
+					contentType = "text/plain; charset=UTF-8";
+					contentLength = Buffer.byteLength(this.#body);
+				} else if (this.#body instanceof ArrayBuffer) {
+					body = Buffer.from(this.#body);
+					contentLength = this.#body.byteLength;
+				} else if (this.#body instanceof Uint8Array) {
+					body = this.#body;
+					contentLength = this.#body.byteLength;
+				} else if (this.#body instanceof DataView) {
+					body = Buffer.from(this.#body.buffer, this.#body.byteOffset, this.#body.byteLength);
+					contentLength = this.#body.byteLength;
+				} else if (this.#body instanceof Blob) {
+					body = this.#body.stream();
+					contentType = this.#body.type;
+					contentLength = this.#body.size;
+				} else if (typeof this.#body.pipe === "function") body = this.#body;
+				else body = this._response.body;
+			}
+			const headers = [];
+			const initHeaders = this.#init?.headers;
+			const headerEntries = this.#response?.headers || this.#headers || (initHeaders ? Array.isArray(initHeaders) ? initHeaders : initHeaders?.entries ? initHeaders.entries() : Object.entries(initHeaders) : void 0);
+			let hasContentTypeHeader;
+			let hasContentLength;
+			if (headerEntries) for (const [key, value] of headerEntries) {
+				const lowerKey = typeof key === "string" ? key.toLowerCase() : String(key);
+				if (Array.isArray(value)) for (const v of value) headers.push(lowerKey, v);
+				else headers.push(lowerKey, value);
+				if (lowerKey === "content-type") hasContentTypeHeader = true;
+				else if (lowerKey === "content-length") hasContentLength = true;
+			}
+			if (contentType && !hasContentTypeHeader) headers.push("content-type", contentType);
+			if (contentLength != null && !hasContentLength) headers.push("content-length", String(contentLength));
+			this.#init = void 0;
+			this.#headers = void 0;
+			this.#response = void 0;
+			this.#body = void 0;
+			return {
+				status,
+				statusText,
+				headers,
+				body
+			};
+		}
+	}
+	lazyInherit(NodeResponse.prototype, NativeResponse.prototype, "_response");
+	Object.setPrototypeOf(NodeResponse, NativeResponse);
+	Object.setPrototypeOf(NodeResponse.prototype, NativeResponse.prototype);
+	return NodeResponse;
+})();
+function toNodeHandler$1(handler, options) {
+	if (handler.__nodeHandler) return handler.__nodeHandler;
+	function convertedNodeHandler(nodeReq, nodeRes) {
+		const res = handler(new NodeRequest({
+			req: nodeReq,
+			res: nodeRes,
+			maxRequestBodySize: options?.maxRequestBodySize,
+			trustProxy: options?.trustProxy
+		}));
+		return typeof res?.then === "function" ? res.then((resolvedRes) => send(nodeRes, resolvedRes)) : send(nodeRes, res);
+	}
+	convertedNodeHandler.__fetchHandler = handler;
+	assignFnName(convertedNodeHandler, handler, " (converted to Node handler)");
+	return convertedNodeHandler;
+}
+function send(nodeRes, webRes) {
+	return sendNodeResponse(nodeRes, webRes).catch((error) => handleSendError(nodeRes, error));
+}
+function assignFnName(target, source, suffix) {
+	if (source.name) try {
+		Object.defineProperty(target, "name", { value: `${source.name}${suffix}` });
+	} catch {}
+}
+//#endregion
+//#region node_modules/h3/dist/response.mjs
+function stripBase(pathname, base) {
+	if (pathname === base || pathname.startsWith(base + "/") || pathname.startsWith(base + "?")) return "/" + pathname.slice(base.length).replace(/^\/+/, "");
+	return pathname;
+}
+function hasEmptySegmentAfterBase(pathname, base) {
+	return pathname.startsWith(base + "//");
+}
+const NEEDLESS_ESCAPE_SRC = String.raw`%(?:2[146-9A-E]|3[0-9ABD]|4[0-9A-F]|5[0-9ABDF]|6[1-9A-F]|7[0-9ACE])`;
+const NEEDLESS_ESCAPE_RE = /* @__PURE__ */ new RegExp(NEEDLESS_ESCAPE_SRC, "i");
+const NEEDLESS_ESCAPE_RE_G = /* @__PURE__ */ new RegExp(NEEDLESS_ESCAPE_SRC, "gi");
+function isNonCanonicalPathname(pathname) {
+	return NEEDLESS_ESCAPE_RE.test(pathname);
+}
+function canonicalPathname(pathname) {
+	return pathname.replace(NEEDLESS_ESCAPE_RE_G, (m) => String.fromCharCode(Number.parseInt(m.slice(1), 16)));
+}
+const ABSOLUTE_URL_RE = /^[a-z][a-z\d+\-.]*:\/\//i;
+const ROUTE_ENCODE_RE = /[\u0000-\u0020"#<>\u0060]|[^\u0000-\u007E]/gu;
+function normalizeRoute(route) {
+	if (ABSOLUTE_URL_RE.test(route)) throw new Error(`Route patterns are pathnames, received URL: ${route}`);
+	if (route.charCodeAt(0) !== 47) route = `/${route}`;
+	route = canonicalPathname(route.replace(ROUTE_ENCODE_RE, encodeURIComponent));
+	return route.includes("/.") ? resolveDotSegments(route) : route;
+}
+function resolveDotSegments(pathname) {
+	const out = [];
+	let dot = false;
+	for (const segment of pathname.split("/")) {
+		dot = segment === "." || segment === "..";
+		if (!dot) out.push(segment);
+		else if (segment.length === 2 && out.length > 1) out.pop();
+	}
+	if (dot) out.push("");
+	return out.join("/");
+}
+function decodePathname(pathname) {
+	try {
+		return decodeURI(pathname);
+	} catch {
+		return;
+	}
+}
+const ENCODED_SEP_RE_G = /%(?:25)*(?:2f|5c)/gi;
+const ENCODED_SEP_FLAT_RE_G = /%(?:2f|5c)/gi;
+function decodePreservingSeparators(value, opts) {
+	if (!value.includes("%")) return value;
+	const decode = opts?.decode || decodeURIComponent;
+	const re = opts?.nested === false ? ENCODED_SEP_FLAT_RE_G : ENCODED_SEP_RE_G;
+	let result = "";
+	let lastIndex = 0;
+	re.lastIndex = 0;
+	for (let m; m = re.exec(value);) {
+		result += decode(value.slice(lastIndex, m.index)) + m[0];
+		lastIndex = m.index + m[0].length;
+	}
+	return result + decode(value.slice(lastIndex));
+}
+const kEventNS = "h3.internal.event.";
+const kEventRes = /* @__PURE__ */ Symbol.for(`${kEventNS}res`);
+const kEventResHeaders = /* @__PURE__ */ Symbol.for(`${kEventNS}res.headers`);
+const kEventResErrHeaders = /* @__PURE__ */ Symbol.for(`${kEventNS}res.err.headers`);
+const kMalformedURL = /* @__PURE__ */ Symbol.for(`${kEventNS}malformed`);
+var H3Event = class {
+	app;
+	req;
+	url;
+	context;
+	static __is_event__ = true;
+	constructor(req, context, app) {
+		this.context = req.context = context || req.context || new NullProtoObj();
+		this.req = req;
+		this.app = app;
+		const _url = req._url;
+		let url = _url && _url instanceof URL ? _url : new FastURL(req.url);
+		const pathname = url.pathname;
+		if (pathname.includes("%")) {
+			if (decodePathname(pathname) === void 0) this[kMalformedURL] = true;
+			else if (isNonCanonicalPathname(pathname)) url = new FastURL(`${url.protocol}//${url.host}${canonicalPathname(pathname)}${url.search}`);
+		}
+		this.url = url;
+	}
+	get res() {
+		return this[kEventRes] ||= new H3EventResponse();
+	}
+	get runtime() {
+		return this.req.runtime;
+	}
+	waitUntil(promise) {
+		this.req.waitUntil?.(promise);
+	}
+	toString() {
+		return `[${this.req.method}] ${this.req.url}`;
+	}
+	toJSON() {
+		return this.toString();
+	}
+	get node() {
+		return this.req.runtime?.node;
+	}
+	get headers() {
+		return this.req.headers;
+	}
+	get path() {
+		return this.url.pathname + this.url.search;
+	}
+	get method() {
+		return this.req.method;
+	}
+};
+var H3EventResponse = class {
+	status;
+	statusText;
+	get headers() {
+		return this[kEventResHeaders] ||= new Headers();
+	}
+	get errHeaders() {
+		return this[kEventResErrHeaders] ||= new Headers();
+	}
+};
+const DISALLOWED_STATUS_CHARS = /[^\u0009\u0020-\u007E]/g;
+function sanitizeStatusMessage(statusMessage = "") {
+	return statusMessage.replace(DISALLOWED_STATUS_CHARS, "");
+}
+function sanitizeStatusCode(statusCode, defaultStatusCode = 200) {
+	if (!statusCode) return defaultStatusCode;
+	if (typeof statusCode === "string") statusCode = +statusCode;
+	if (!Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) return defaultStatusCode;
+	return statusCode;
+}
+var HTTPError = class HTTPError extends Error {
+	get name() {
+		return "HTTPError";
+	}
+	status;
+	statusText;
+	headers;
+	cause;
+	data;
+	body;
+	unhandled;
+	static isError(input) {
+		return input instanceof Error && input?.name === "HTTPError" && input.status > 99;
+	}
+	static status(status, statusText, details) {
+		return new HTTPError({
+			...details,
+			statusText,
+			status
+		});
+	}
+	constructor(arg1, arg2) {
+		let messageInput;
+		let details;
+		if (typeof arg1 === "string") {
+			messageInput = arg1;
+			details = arg2;
+		} else details = arg1;
+		const status = sanitizeStatusCode(details?.status || details?.statusCode || (details?.cause)?.status || (details?.cause)?.statusCode, 500);
+		const statusText = sanitizeStatusMessage(details?.statusText || details?.statusMessage || (details?.cause)?.statusText || (details?.cause)?.statusMessage);
+		const message = messageInput || details?.message || (details?.cause)?.message || details?.statusText || details?.statusMessage || [
+			"HTTPError",
+			status,
+			statusText
+		].filter(Boolean).join(" ");
+		super(message, { cause: details });
+		this.cause = details;
+		this.status = status;
+		this.statusText = statusText || void 0;
+		const rawHeaders = details?.headers || (details?.cause)?.headers;
+		this.headers = rawHeaders ? new Headers(rawHeaders) : void 0;
+		this.unhandled = details?.unhandled ?? (details?.cause)?.unhandled ?? void 0;
+		this.data = details?.data;
+		this.body = details?.body;
+	}
+	get statusCode() {
+		return this.status;
+	}
+	get statusMessage() {
+		return this.statusText;
+	}
+	toJSON() {
+		const unhandled = this.unhandled;
+		return {
+			status: this.status,
+			statusText: this.statusText,
+			unhandled,
+			message: unhandled ? "HTTPError" : this.message,
+			data: unhandled ? void 0 : this.data,
+			...unhandled ? void 0 : this.body
+		};
+	}
+};
+function hasProp(obj, prop) {
+	try {
+		return prop in obj;
+	} catch {
+		return false;
+	}
+}
+function isJSONSerializable(value, _type) {
+	if (value === null || value === void 0) return true;
+	if (_type !== "object") return _type === "boolean" || _type === "number" || _type === "string";
+	if (typeof value.toJSON === "function") return true;
+	if (Array.isArray(value)) return true;
+	if (typeof value.pipe === "function" || typeof value.pipeTo === "function") return false;
+	if (value instanceof NullProtoObj) return true;
+	const proto = Object.getPrototypeOf(value);
+	return proto === Object.prototype || proto === null;
+}
+const kEventDispose = /* @__PURE__ */ Symbol.for("h3.internal.event.dispose");
+function onDispose(event, cb) {
+	let state = event[kEventDispose];
+	if (!state) {
+		const _state = {
+			callbacks: [],
+			observe: (response, val) => observeResponse(response, val, event, _state)
+		};
+		state = event[kEventDispose] = _state;
+	}
+	if (state.disposed) invokeDisposeCallbacks(event, [cb], state.reason);
+	else state.callbacks.push(cb);
+}
+function observeResponse(response, val, event, state) {
+	if (state.observing || state.disposed) return response;
+	state.observing = true;
+	const nodeRes = event.runtime?.node?.res;
+	if (nodeRes) {
+		if (nodeRes.closed || nodeRes.destroyed) {
+			fireDispose(event, state, nodeRes.errored ?? abortError());
+			return response;
+		}
+		nodeRes.once("close", () => {
+			fireDispose(event, state, nodeRes.errored ?? (nodeRes.writableFinished ? void 0 : abortError()));
+		});
+		return response;
+	}
+	if (!isStreamBody(val) || !response.body) {
+		fireDispose(event, state, void 0);
+		return response;
+	}
+	const body = response.body;
+	const { readable, writable } = new TransformStream();
+	body.pipeTo(writable).then(() => fireDispose(event, state, void 0), (reason) => fireDispose(event, state, reason === void 0 ? abortError() : reason));
+	return new NodeResponse(readable, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers
+	});
+}
+function fireDispose(event, state, reason) {
+	if (state.disposed) return;
+	state.disposed = true;
+	state.reason = reason;
+	const callbacks = state.callbacks;
+	state.callbacks = [];
+	invokeDisposeCallbacks(event, callbacks, reason);
+}
+function invokeDisposeCallbacks(event, callbacks, reason) {
+	const pending = [];
+	for (const cb of callbacks) try {
+		const res = cb(reason);
+		if (typeof res?.then === "function") pending.push(Promise.resolve(res).catch((error) => reportDisposeError(event, error)));
+	} catch (error) {
+		reportDisposeError(event, error);
+	}
+	if (pending.length > 0) event.waitUntil(Promise.all(pending));
+}
+function isStreamBody(val) {
+	return val instanceof ReadableStream || val instanceof Blob || val instanceof Response || val?.body instanceof ReadableStream;
+}
+function abortError() {
+	return new DOMException("Connection closed prematurely.", "AbortError");
+}
+function reportDisposeError(event, error) {
+	if (!event.app?.config.silent) console.error("[h3] onDispose:", error);
+}
+const kNotFound = /* @__PURE__ */ Symbol.for("h3.notFound");
+const kHandled = /* @__PURE__ */ Symbol.for("h3.handled");
+function toResponse(val, event, config = {}) {
+	if (typeof val?.then === "function") return val.then((resolvedVal) => toResponse(resolvedVal, event, config), (r) => toResponse(toError(r), event, config));
+	let response;
+	try {
+		response = prepareResponse(val, event, config);
+	} catch (error) {
+		return toResponse(toError(error), event, config);
+	}
+	if (typeof response?.then === "function") return toResponse(response, event, config);
+	const { onResponse } = config;
+	if (onResponse) return Promise.resolve().then(() => onResponse(response, event)).catch((error) => {
+		if (!config.silent) console.error(error);
+	}).then(() => event[kEventDispose]?.observe(response, val) ?? response);
+	return event[kEventDispose]?.observe(response, val) ?? response;
+}
+function toError(value) {
+	if (value === kNotFound || value === kHandled || value instanceof Error) return value;
+	if (typeof value === "number") return new HTTPError({ status: value });
+	const error = new HTTPError({
+		status: 500,
+		unhandled: true
+	});
+	error.cause = value;
+	return error;
+}
+const kHTTPResponse = /* @__PURE__ */ Symbol.for("h3.HTTPResponse");
+var HTTPResponse = class {
+	#headers;
+	#init;
+	body;
+	constructor(body, init) {
+		this.body = body;
+		this.#init = init;
+	}
+	get status() {
+		return this.#init?.status;
+	}
+	get statusText() {
+		return this.#init?.statusText;
+	}
+	get headers() {
+		return this.#headers ||= new Headers(this.#init?.headers);
+	}
+};
+HTTPResponse.prototype[kHTTPResponse] = true;
+function prepareResponse(val, event, config, nested) {
+	if (val === kHandled) return new NodeResponse(null);
+	if (val === kNotFound) val = new HTTPError({
+		status: 404,
+		message: `Cannot find any route matching [${event.req.method}] ${event.url}`
+	});
+	if (val && val instanceof Error) {
+		const isHTTPError = HTTPError.isError(val);
+		const error = isHTTPError ? val : new HTTPError(val);
+		if (!isHTTPError) {
+			error.unhandled = true;
+			if (val?.stack) error.stack = val.stack;
+		}
+		if (error.unhandled && !config.silent) console.error(error);
+		const { onError } = config;
+		const errHeaders = event[kEventRes]?.[kEventResErrHeaders];
+		if (onError && !nested) return Promise.resolve().then(() => onError(error, event)).catch(toError).then((newVal) => prepareResponse(newVal ?? val, event, config, true));
+		event[kEventRes] = void 0;
+		return errorResponse(error, config.debug, errHeaders);
+	}
+	const preparedRes = event[kEventRes];
+	let preparedHeaders = preparedRes?.[kEventResHeaders];
+	event[kEventRes] = void 0;
+	if (!(val instanceof Response)) {
+		const res = prepareResponseBody(val, event, config);
+		const rawStatus = res.status || preparedRes?.status;
+		const status = rawStatus ? sanitizeStatusCode(rawStatus) : void 0;
+		const rawStatusText = res.statusText || preparedRes?.statusText;
+		return new NodeResponse(nullBody(event.req.method, status) ? null : res.body, {
+			status,
+			statusText: rawStatusText === void 0 ? void 0 : sanitizeStatusMessage(rawStatusText),
+			headers: res.headers && preparedHeaders ? mergeHeaders(res.headers, preparedHeaders) : res.headers || preparedHeaders
+		});
+	}
+	if (val.status >= 400) preparedHeaders = preparedRes?.[kEventResErrHeaders];
+	if (preparedHeaders && !nested && !preparedHeaders.keys().next().done) return new NodeResponse(nullBody(event.req.method, val.status) ? null : val.body, {
+		status: val.status,
+		statusText: val.statusText,
+		headers: mergeHeaders(val.headers, preparedHeaders)
+	});
+	return event.req.method === "HEAD" && val.body !== null ? new NodeResponse(null, {
+		status: val.status,
+		statusText: val.statusText,
+		headers: val.headers
+	}) : val;
+}
+function mergeHeaders(base, overrides, target = new Headers(base)) {
+	for (const [name, value] of overrides) if (name === "set-cookie") target.append(name, value);
+	else target.set(name, value);
+	return target;
+}
+const frozen = (name) => (...args) => {
+	throw new Error(`Headers are frozen (${name} ${args.join(", ")})`);
+};
+var FrozenHeaders = class extends Headers {
+	set = frozen("set");
+	append = frozen("append");
+	delete = frozen("delete");
+};
+const emptyHeaders = /* @__PURE__ */ new FrozenHeaders({ "content-length": "0" });
+const jsonHeaders = /* @__PURE__ */ new FrozenHeaders({ "content-type": "application/json;charset=UTF-8" });
+function prepareResponseBody(val, event, config) {
+	if (val === null || val === void 0) return {
+		body: "",
+		headers: emptyHeaders
+	};
+	const valType = typeof val;
+	if (valType === "string") return { body: val };
+	if (val instanceof Uint8Array) return {
+		body: val,
+		headers: new Headers({ "content-length": val.byteLength.toString() })
+	};
+	if (val instanceof HTTPResponse || val?.[kHTTPResponse] === true) return val;
+	if (isJSONSerializable(val, valType)) return {
+		body: JSON.stringify(val, void 0, config.debug ? 2 : void 0),
+		headers: jsonHeaders
+	};
+	if (valType === "bigint") return {
+		body: val.toString(),
+		headers: jsonHeaders
+	};
+	if (val instanceof Blob) {
+		const headers = new Headers({
+			"content-type": val.type,
+			"content-length": val.size.toString()
+		});
+		let filename = val.name;
+		if (filename) {
+			filename = encodeURIComponent(filename);
+			headers.set("content-disposition", `filename="${filename}"; filename*=UTF-8''${filename}`);
+		}
+		return {
+			body: val.stream(),
+			headers
+		};
+	}
+	if (valType === "symbol") return { body: val.toString() };
+	if (valType === "function") return { body: `${val.name}()` };
+	return { body: val };
+}
+function nullBody(method, status) {
+	return method === "HEAD" || status === 100 || status === 101 || status === 102 || status === 204 || status === 205 || status === 304;
+}
+function errorResponse(error, debug, errHeaders) {
+	let headers = error.headers ? mergeHeaders(jsonHeaders, error.headers) : new Headers(jsonHeaders);
+	if (errHeaders) headers = mergeHeaders(headers, errHeaders);
+	return new NodeResponse(JSON.stringify({
+		...error.toJSON(),
+		stack: debug && error.stack ? error.stack.split("\n").map((l) => l.trim()) : void 0
+	}, void 0, debug ? 2 : void 0), {
+		status: error.status,
+		statusText: error.statusText,
+		headers
+	});
+}
+//#endregion
+//#region node_modules/h3/dist/middleware.mjs
+const LITERAL_ROUTE_RE = /^(?:\/[^/:*(){}\\?^\0- "#<>`\x7F-\uFFFF]+)*\/?$/;
+const LITERAL_PREFIX_ROUTE_RE = /^((?:\/[^/:*(){}\\?^\0- "#<>`\x7F-\uFFFF]+)*)\/\*\*\/?$/;
+function createRouteMatcher(route) {
+	if (route.charCodeAt(0) !== 47) route = `/${route}`;
+	const prefixMatch = LITERAL_PREFIX_ROUTE_RE.exec(route);
+	if (prefixMatch) {
+		const base = prefixMatch[1];
+		const prefix = `${base}/`;
+		return (pathname) => {
+			if (pathname === base || pathname === prefix) return;
+			if (!pathname.startsWith(prefix)) return false;
+			const rest = trimTrailingSlash(pathname.slice(prefix.length));
+			return {
+				0: rest,
+				_: rest
+			};
+		};
+	}
+	if (LITERAL_ROUTE_RE.test(route)) {
+		const base = route.endsWith("/") ? route.slice(0, -1) : route;
+		return (pathname) => pathname === base || pathname === `${base}/` ? void 0 : false;
+	}
+	const router = createRouter();
+	addRoute(router, "", route, true);
+	return (pathname) => {
+		const match = findRoute(router, "", pathname);
+		return match ? match.params : false;
+	};
+}
+function trimTrailingSlash(rest) {
+	return rest.endsWith("/") ? rest.slice(0, -1) : rest;
+}
+function normalizeMiddleware(input, opts = {}) {
+	const matcher = createMatcher(opts);
+	if (!matcher && (input.length > 1 || input.constructor?.name === "AsyncFunction")) return input;
+	return (event, next) => {
+		if (matcher && !matcher(event)) return next();
+		const res = input(event, next);
+		return res === void 0 || res === kNotFound ? next() : res;
+	};
+}
+function createMatcher(opts) {
+	if (!opts.route && !opts.method && !opts.match) return;
+	const routeMatcher = opts.route ? createRouteMatcher(normalizeRoute(opts.route)) : void 0;
+	const method = opts.method?.toUpperCase();
+	return function _middlewareMatcher(event) {
+		if (method) {
+			const reqMethod = event.req.method.toUpperCase();
+			if (reqMethod !== method && !(method === "GET" && reqMethod === "HEAD")) return false;
+		}
+		if (opts.match && !opts.match(event)) return false;
+		if (!routeMatcher) return true;
+		const params = routeMatcher(event.url.pathname);
+		if (params === false) return false;
+		if (params) event.context.middlewareParams = {
+			...event.context.middlewareParams,
+			...params
+		};
+		return true;
+	};
+}
+function composeMiddleware(middleware) {
+	let chain = (event, handler) => handler(event);
+	for (let i = middleware.length - 1; i >= 0; i--) {
+		const fn = middleware[i];
+		const inner = chain;
+		chain = (event, handler) => callLayer(fn, event, handler, inner);
+	}
+	return chain;
+}
+function composeHandler(middleware, handler) {
+	const chain = composeMiddleware(middleware);
+	return function _composedHandler(event) {
+		return chain(event, handler);
+	};
+}
+function callMiddleware(event, middleware, handler, index = 0) {
+	return index === middleware.length ? handler(event) : callLayer(middleware[index], event, handler, (_event, _handler) => callMiddleware(_event, middleware, _handler, index + 1));
+}
+function callLayer(fn, event, handler, inner) {
+	let nextCalled;
+	let nextResult;
+	const next = () => {
+		if (nextCalled) return nextResult;
+		nextCalled = true;
+		nextResult = inner(event, handler);
+		return nextResult;
+	};
+	const ret = fn(event, next);
+	return isUnhandledResponse(ret) ? next() : typeof ret?.then === "function" ? ret.then((resolved) => isUnhandledResponse(resolved) ? next() : resolved) : ret;
+}
+function isUnhandledResponse(val) {
+	return val === void 0 || val === kNotFound;
+}
+//#endregion
+//#region node_modules/h3/dist/cache.mjs
+const VALIDATION_FAILED = "Validation failed";
+async function validateData(data, fn, options) {
+	if ("~standard" in fn) {
+		const result = await fn["~standard"].validate(data);
+		if (result.issues) throw createValidationError(options?.onError?.(result) || {
+			message: VALIDATION_FAILED,
+			issues: result.issues
+		});
+		return result.value;
+	}
+	try {
+		const res = await fn(data);
+		if (res === false) throw createValidationError(options?.onError?.({ issues: [{ message: VALIDATION_FAILED }] }) || { message: VALIDATION_FAILED });
+		if (res === true) return data;
+		return res ?? data;
+	} catch (error) {
+		throw createValidationError(error);
+	}
+}
+function createValidationError(cause) {
+	return HTTPError.isError(cause) ? cause : new HTTPError({
+		cause,
+		status: cause?.status || 400,
+		statusText: cause?.statusText || VALIDATION_FAILED,
+		message: cause?.message || VALIDATION_FAILED,
+		data: {
+			issues: cause?.issues,
+			message: cause instanceof Error ? VALIDATION_FAILED : cause?.message || VALIDATION_FAILED
+		}
+	});
+}
+function getEventContext(event) {
+	if (event.context) return event.context;
+	event.req.context ??= {};
+	return event.req.context;
+}
+function requestWithURL(req, url) {
+	const cache = new NullProtoObj();
+	cache.url = url;
+	cache._url = void 0;
+	return new Proxy(req, {
+		get(target, prop) {
+			if (prop in cache) return cache[prop];
+			const value = Reflect.get(target, prop);
+			if (prop === "bodyUsed") return value;
+			cache[prop] = typeof value === "function" && prop !== "constructor" ? value.bind(target) : value;
+			return cache[prop];
+		},
+		set(target, prop, value) {
+			if (prop !== "url" && prop !== "_url") delete cache[prop];
+			return Reflect.set(target, prop, value);
+		}
+	});
+}
+function requestWithBaseURL(req, base, options = {}) {
+	const url = new URL(options.url || req.url);
+	url.pathname = stripBase(url.pathname, base);
+	return requestWithURL(req, url.href);
+}
+function toRequest(input, options) {
+	if (typeof input === "string") {
+		let url = input;
+		if (url[0] === "/") url = `http://${safeHost((options?.headers ? new Headers(options.headers) : void 0)?.get("host"))}${url}`;
+		return new Request(url, options);
+	} else if (options || input instanceof URL) return new Request(input, options);
+	return input;
+}
+function getRouterParams(event, opts = {}) {
+	let params = getEventContext(event).params || {};
+	if (opts.decode) {
+		params = { ...params };
+		for (const key in params) params[key] = decodePreservingSeparators(params[key]);
+	}
+	return params;
+}
+function getRouterParam(event, name, opts = {}) {
+	return getRouterParams(event, opts)[name];
+}
+function safeHost(host) {
+	return host && !/[/\\?#@\s]/.test(host) ? host : "localhost";
+}
+function toEventHandler(handler) {
+	if (typeof handler === "function") return handler;
+	if (typeof handler?.handler === "function" && handler.constructor?.["~h3"]) return handler.handler;
+	if (typeof handler?.fetch === "function") return function _fetchHandler(event) {
+		return handler.fetch(event.req);
+	};
+}
+const NoHandler = () => kNotFound;
+var H3Core = class {
+	static "~h3" = true;
+	config;
+	"~middleware";
+	"~routes" = [];
+	"~dispatch";
+	"~composed";
+	constructor(config = {}) {
+		this["~middleware"] = [];
+		this.config = config;
+		this.fetch = this.fetch.bind(this);
+		this.handler = this.handler.bind(this);
+	}
+	fetch(request) {
+		return this["~request"](request);
+	}
+	handler(event) {
+		const route = this["~findRoute"](event);
+		if (route) {
+			event.context.params = route.params;
+			event.context.matchedRoute = route.data;
+		}
+		return (this["~dispatch"] ??= createDispatcher(this))(event, route);
+	}
+	"~request"(request, context) {
+		const event = new H3Event(request, context, this);
+		let handlerRes;
+		try {
+			if (event[kMalformedURL] && !this.config.allowMalformedURL) throw new HTTPError({
+				status: 400,
+				message: "Bad Request"
+			});
+			if (this.config.onRequest) {
+				const hookRes = this.config.onRequest(event);
+				handlerRes = typeof hookRes?.then === "function" ? hookRes.then(() => this.handler(event)) : this.handler(event);
+			} else handlerRes = this.handler(event);
+		} catch (error) {
+			handlerRes = Promise.reject(error);
+		}
+		return toResponse(handlerRes, event, this.config);
+	}
+	"~findRoute"(_event) {}
+	"~addRoute"(_route) {
+		this["~routes"].push(_route);
+	}
+	"~getMiddleware"(_event, _route) {
+		return this["~middleware"];
+	}
+};
+function createDispatcher(app) {
+	if (app["~getMiddleware"] !== H3Core.prototype["~getMiddleware"]) return (event, route) => callMiddleware(event, app["~getMiddleware"](event, route || void 0), routeHandler(route));
+	const middleware = app["~middleware"];
+	if (middleware.length === 0) return (event, route) => routeHandler(route)(event);
+	const composed = app["~composed"] ??= composeMiddleware(middleware);
+	return (event, route) => composed(event, routeHandler(route));
+}
+function routeHandler(route) {
+	const data = route?.data;
+	if (!data) return NoHandler;
+	return data.middleware?.length ? data["~composed"] ??= composeHandler(data.middleware, data.handler) : data.handler;
+}
+const H3 = /* @__PURE__ */ (() => {
+	class H3 extends H3Core {
+		"~rou3";
+		constructor(config = {}) {
+			super(config);
+			this["~rou3"] = createRouter();
+			this.request = this.request.bind(this);
+			config.plugins?.forEach((plugin) => plugin(this));
+		}
+		register(plugin) {
+			plugin(this);
+			return this;
+		}
+		request(_req, _init, context) {
+			return this["~request"](toRequest(_req, _init), context);
+		}
+		mount(base, input) {
+			base = !base || base === "/" ? "" : normalizeRoute(base).replace(/\/$/, "");
+			if ("handler" in input) {
+				if (input["~middleware"].length > 0) {
+					this["~middleware"].push((event, next) => {
+						const originalPathname = event.url.pathname;
+						if (!originalPathname.startsWith(base) || originalPathname.length > base.length && originalPathname[base.length] !== "/") return next();
+						if (hasEmptySegmentAfterBase(originalPathname, base)) throw new HTTPError({ status: 404 });
+						event.url.pathname = stripBase(originalPathname, base);
+						const restore = () => {
+							event.url.pathname = originalPathname;
+						};
+						try {
+							const result = (input["~composed"] ??= composeMiddleware(input["~middleware"]))(event, () => {
+								restore();
+								return next();
+							});
+							if (typeof result?.then === "function") return Promise.resolve(result).finally(restore);
+							restore();
+							return result;
+						} catch (err) {
+							restore();
+							throw err;
+						}
+					});
+					this["~dispatch"] = this["~composed"] = void 0;
+				}
+				for (const r of input["~routes"]) this["~addRoute"]({
+					...r,
+					route: base + r.route
+				});
+			} else {
+				const fetchHandler = "fetch" in input ? input.fetch : input;
+				this.all(`${base}/**`, function _mountedMiddleware(event) {
+					if (hasEmptySegmentAfterBase(event.url.pathname, base)) throw new HTTPError({ status: 404 });
+					return fetchHandler(requestWithBaseURL(event.req, base, { url: event.url }));
+				});
+			}
+			return this;
+		}
+		on(method, route, handler, opts) {
+			const _method = (method || "").toUpperCase();
+			route = normalizeRoute(route);
+			this["~addRoute"]({
+				method: _method,
+				route,
+				handler: toEventHandler(handler),
+				middleware: opts?.middleware,
+				meta: {
+					...handler.meta,
+					...opts?.meta
+				}
+			});
+			return this;
+		}
+		all(route, handler, opts) {
+			return this.on("", route, handler, opts);
+		}
+		"~findRoute"(_event) {
+			const match = findRoute(this["~rou3"], _event.req.method, _event.url.pathname);
+			if (match === void 0 && _event.req.method === "HEAD") return findRoute(this["~rou3"], "GET", _event.url.pathname);
+			return match;
+		}
+		"~addRoute"(_route) {
+			addRoute(this["~rou3"], _route.method, _route.route, _route);
+			super["~addRoute"](_route);
+		}
+		use(arg1, arg2, arg3) {
+			let route;
+			let fn;
+			let opts;
+			if (typeof arg1 === "string") {
+				route = arg1;
+				fn = arg2;
+				opts = arg3;
+			} else {
+				fn = arg1;
+				opts = arg2;
+			}
+			if (typeof fn !== "function" && "handler" in fn) return this.mount(route || "", fn);
+			this["~middleware"].push(normalizeMiddleware(fn, {
+				...opts,
+				route
+			}));
+			this["~dispatch"] = this["~composed"] = void 0;
+			return this;
+		}
+	}
+	for (const method of [
+		"GET",
+		"POST",
+		"PUT",
+		"DELETE",
+		"PATCH",
+		"HEAD",
+		"OPTIONS",
+		"CONNECT",
+		"TRACE",
+		"QUERY"
+	]) H3Core.prototype[method.toLowerCase()] = function(route, handler, opts) {
+		return this.on(method, route, handler, opts);
+	};
+	return H3;
+})();
+//#endregion
+//#region node_modules/h3/dist/h3.mjs
+function parseURLEncodedBody(body) {
+	return collectEntries(new URLSearchParams(body).entries());
+}
+function parseFormData(form) {
+	return collectEntries(form.entries());
+}
+function collectEntries(entries) {
+	const parsed = new NullProtoObj();
+	for (const [key, value] of entries) if (hasProp(parsed, key)) {
+		if (!Array.isArray(parsed[key])) parsed[key] = [parsed[key]];
+		parsed[key].push(value);
+	} else parsed[key] = value;
+	return parsed;
+}
+async function readBody(event, options) {
+	const contentType = event.req.headers.get("content-type") || "";
+	const type = options?.type;
+	if (type === "formData") {
+		let form;
+		try {
+			form = await event.req.formData();
+		} catch (error) {
+			if (HTTPError.isError(error)) throw error;
+			throw new HTTPError({
+				status: 400,
+				statusText: "Bad Request",
+				message: "Invalid form data body"
+			});
+		}
+		return parseFormData(form);
+	}
+	const text = await event.req.text();
+	if (type === "text") return text;
+	if (!text) return;
+	if (type === "urlencoded" || !type && contentType.startsWith("application/x-www-form-urlencoded")) return parseURLEncodedBody(text);
+	try {
+		return JSON.parse(text);
+	} catch {
+		throw new HTTPError({
+			status: 400,
+			statusText: "Bad Request",
+			message: "Invalid JSON body"
+		});
+	}
+}
+async function readValidatedBody(event, validate, options) {
+	return validateData(await readBody(event, options), validate, options);
+}
+function assertBodySize(event, limit) {
+	const req = event.req;
+	if (!req.body) return;
+	const contentLength = req.headers.get("content-length");
+	if (contentLength) {
+		if (req.headers.get("transfer-encoding")) throw new HTTPError({ status: 400 });
+		if (+contentLength > limit) throw bodyTooLargeError(limit);
+	}
+	event.req = limitRequestBody(req, limit, { createError: () => bodyTooLargeError(limit) });
+}
+function bodyTooLargeError(limit) {
+	return new HTTPError({
+		status: 413,
+		statusText: "Request Entity Too Large",
+		message: `Request body size exceeds the limit of ${limit} bytes`
+	});
+}
+function bodyLimit(limit) {
+	return (event, next) => {
+		assertBodySize(event, limit);
+		return next();
+	};
+}
+function formatEventStreamComment(comment) {
+	return comment.split(/\r\n|\r|\n/).map((l) => `: ${l}\n`).join("") + "\n";
+}
+function formatEventStreamMessage(message) {
+	let result = "";
+	if (message.id) result += `id: ${_sanitizeSingleLine(message.id)}\n`;
+	if (message.event) result += `event: ${_sanitizeSingleLine(message.event)}\n`;
+	if (typeof message.retry === "number" && Number.isInteger(message.retry)) result += `retry: ${message.retry}\n`;
+	const data = typeof message.data === "string" ? message.data : "";
+	for (const line of data.split(/\r\n|\r|\n/)) result += `data: ${line}\n`;
+	result += "\n";
+	return result;
+}
+function _sanitizeSingleLine(value) {
+	return value.replace(/[\n\r]/g, "");
+}
+function formatEventStreamMessages(messages) {
+	let result = "";
+	for (const msg of messages) result += formatEventStreamMessage(msg);
+	return result;
+}
+function eventStreamHeaders(event) {
+	const headers = {
+		"content-type": "text/event-stream",
+		"cache-control": "private, no-cache, no-store, no-transform, must-revalidate, max-age=0",
+		"x-accel-buffering": "no"
+	};
+	if (event.req.headers.get("connection") === "keep-alive") headers["connection"] = "keep-alive";
+	return headers;
+}
+function setEventStreamHeaders(event) {
+	for (const [name, value] of Object.entries(eventStreamHeaders(event))) event.res.headers.set(name, value);
+}
+const _noop = () => {};
+var EventStream = class extends HTTPResponse {
+	_event;
+	_transformStream;
+	_writer;
+	_encoder = new TextEncoder();
+	_closeCallbacks = [];
+	_writerIsClosed = false;
+	_paused = false;
+	_unsentData;
+	_disposed = false;
+	_closing;
+	get _isClosed() {
+		return this._writerIsClosed || this._disposed;
+	}
+	constructor(event, _opts = {}) {
+		const transformStream = new TransformStream();
+		super(transformStream.readable, {
+			status: 200,
+			headers: eventStreamHeaders(event)
+		});
+		this._event = event;
+		this._transformStream = transformStream;
+		this._writer = transformStream.writable.getWriter();
+		this._writer.closed.catch(_noop).finally(() => {
+			this._writerIsClosed = true;
+			this._disposed = true;
+			for (const cb of this._closeCallbacks.splice(0)) _invokeCloseCallback(cb);
+		});
+		onDispose(this._event, () => {
+			if (!this._isClosed && !this._transformStream.readable.locked) return this._transformStream.readable.cancel().catch(_noop);
+			return this.close();
+		});
+	}
+	async push(message) {
+		if (typeof message === "string") {
+			await this._sendEvent({ data: message });
+			return;
+		}
+		if (Array.isArray(message)) {
+			if (message.length === 0) return;
+			if (typeof message[0] === "string") {
+				const msgs = [];
+				for (const item of message) msgs.push({ data: item });
+				await this._sendEvents(msgs);
+				return;
+			}
+			await this._sendEvents(message);
+			return;
+		}
+		await this._sendEvent(message);
+	}
+	async pushComment(comment) {
+		if (this._isClosed) return;
+		if (this._paused && !this._unsentData) {
+			this._unsentData = formatEventStreamComment(comment);
+			return;
+		}
+		if (this._paused) {
+			this._unsentData += formatEventStreamComment(comment);
+			return;
+		}
+		await this._writer.write(this._encoder.encode(formatEventStreamComment(comment))).catch(() => {
+			this._writerIsClosed = true;
+		});
+	}
+	async _sendEvent(message) {
+		if (this._isClosed) return;
+		if (this._paused && !this._unsentData) {
+			this._unsentData = formatEventStreamMessage(message);
+			return;
+		}
+		if (this._paused) {
+			this._unsentData += formatEventStreamMessage(message);
+			return;
+		}
+		await this._writer.write(this._encoder.encode(formatEventStreamMessage(message))).catch(() => {
+			this._writerIsClosed = true;
+		});
+	}
+	async _sendEvents(messages) {
+		if (this._isClosed) return;
+		const payload = formatEventStreamMessages(messages);
+		if (this._paused && !this._unsentData) {
+			this._unsentData = payload;
+			return;
+		}
+		if (this._paused) {
+			this._unsentData += payload;
+			return;
+		}
+		await this._writer.write(this._encoder.encode(payload)).catch(() => {
+			this._writerIsClosed = true;
+		});
+	}
+	pause() {
+		this._paused = true;
+	}
+	get isPaused() {
+		return this._paused;
+	}
+	async resume() {
+		this._paused = false;
+		await this.flush();
+	}
+	async flush() {
+		if (this._isClosed) return;
+		if (this._unsentData?.length) {
+			const data = this._unsentData;
+			this._unsentData = void 0;
+			await this._writer.write(this._encoder.encode(data)).catch(() => {
+				this._writerIsClosed = true;
+			});
+		}
+	}
+	close() {
+		return this._closing ??= this._close();
+	}
+	async _close() {
+		if (this._disposed) return;
+		if (!this._isClosed) {
+			do {
+				this._paused = false;
+				await this.flush();
+			} while (!this._isClosed && this._unsentData?.length);
+			try {
+				await this._writer.close();
+			} catch {}
+		}
+		this._disposed = true;
+	}
+	onClosed(cb) {
+		if (this._writerIsClosed) {
+			queueMicrotask(() => _invokeCloseCallback(cb));
+			return;
+		}
+		this._closeCallbacks.push(cb);
+	}
+	async send() {
+		setEventStreamHeaders(this._event);
+		this._event.res.status = 200;
+		return this._transformStream.readable;
+	}
+};
+function _invokeCloseCallback(cb) {
+	try {
+		const res = cb();
+		if (res instanceof Promise) res.catch(_noop);
+	} catch {}
+}
+function createEventStream(event, opts) {
+	return new EventStream(event, opts);
+}
+//#endregion
+//#region node_modules/h3/dist/_entries/node.mjs
+function toNodeHandler(app) {
+	return toNodeHandler$1(app.fetch);
+}
+//#endregion
 //#region src/gallery/page.ts
 const PAGE_HTML = "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Claude Images</title>\n<link rel=\"icon\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23c2613a'/%3E%3Ccircle cx='11' cy='12' r='4' fill='%23fff'/%3E%3Cpath d='M4 26l8-8 5 5 4-4 7 7z' fill='%23fff'/%3E%3C/svg%3E\">\n<style>\n  :root {\n    --bg: #f6f5f2; --surface: #ffffff; --surface-2: #efede8; --text: #1d1c1a; --muted: #6f6b64;\n    --line: #e2dfd8; --accent: #c2613a; --accent-soft: #c2613a22; --danger: #b3261e; --star: #d99a00;\n    --radius: 12px; --shadow: 0 1px 2px #0000000d, 0 4px 16px #0000000a;\n  }\n  @media (prefers-color-scheme: dark) {\n    :root {\n      --bg: #141413; --surface: #1d1d1b; --surface-2: #262624; --text: #ecebe7; --muted: #9b978f;\n      --line: #2f2e2b; --accent: #e07b52; --accent-soft: #e07b5226; --danger: #f2827a; --star: #f5c04a;\n      --shadow: 0 1px 2px #00000040, 0 4px 16px #00000033;\n    }\n  }\n  * { box-sizing: border-box; }\n  [hidden] { display: none !important; }\n  html, body { margin: 0; background: var(--bg); color: var(--text); }\n  body { font: 14px/1.45 ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; }\n  button { font: inherit; color: inherit; }\n  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }\n\n  header {\n    position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px;\n    padding: 12px 24px; background: color-mix(in srgb, var(--bg) 88%, transparent);\n    backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);\n  }\n  header h1 { font-size: 15px; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }\n  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }\n  .dot.live { background: #3fa45b; box-shadow: 0 0 0 3px #3fa45b33; }\n  .spacer { flex: 1; }\n  input[type=search] {\n    width: min(320px, 40vw); padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line);\n    background: var(--surface); color: var(--text); outline: none;\n  }\n  input[type=search]:focus { border-color: var(--accent); }\n  .toggle { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; white-space: nowrap; }\n  .toggle[aria-pressed=true] { border-color: var(--star); color: var(--star); }\n\n  main { max-width: 1400px; margin: 0 auto; padding: 24px; }\n  .empty { color: var(--muted); text-align: center; padding: 80px 0; }\n\n  .batch { margin-bottom: 36px; scroll-margin-top: 80px; }\n  .batch.focus .grid { outline: 2px solid var(--accent); outline-offset: 8px; border-radius: var(--radius); }\n  .batch-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }\n  .prompt { font-size: 15px; font-weight: 500; max-width: 900px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }\n  .meta { color: var(--muted); font-size: 12.5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }\n  .chip {\n    display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line);\n    background: var(--surface); cursor: pointer; font-size: 12px; color: var(--text);\n  }\n  .chip:hover { border-color: var(--accent); }\n\n  .grid { display: grid; gap: 12px; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }\n  @media (max-width: 900px) { .grid { --cols: 2 !important; } }\n  @media (max-width: 520px) { .grid { --cols: 1 !important; } main, header { padding-left: 16px; padding-right: 16px; } }\n\n  .tile {\n    position: relative; border-radius: var(--radius); overflow: hidden; background: var(--surface-2);\n    box-shadow: var(--shadow); aspect-ratio: var(--ar, 1); cursor: zoom-in;\n  }\n  .tile img { width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity .35s; }\n  .tile img.loaded { opacity: 1; }\n  .tile.checker { background-color: var(--surface-2); background-image:\n    linear-gradient(45deg, #8881 25%, transparent 25%), linear-gradient(-45deg, #8881 25%, transparent 25%),\n    linear-gradient(45deg, transparent 75%, #8881 75%), linear-gradient(-45deg, transparent 75%, #8881 75%);\n    background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0; }\n  .tile.pending { cursor: default; }\n  .tile.pending::before {\n    content: \"\"; position: absolute; inset: 0;\n    background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--accent) 14%, transparent) 50%, transparent 80%);\n    background-size: 220% 100%; animation: shimmer 1.6s linear infinite;\n  }\n  @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }\n  .tile .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; color: var(--muted); }\n  .tile.error { cursor: default; aspect-ratio: auto; min-height: 180px; }\n  .tile.error .center { color: var(--danger); font-size: 12.5px; }\n  .overlay {\n    position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center;\n    padding: 8px; background: linear-gradient(transparent, #0000008c); opacity: 0; transition: opacity .15s;\n  }\n  .tile:hover .overlay, .tile .overlay.show { opacity: 1; }\n  .idtag {\n    font: 600 12.5px ui-monospace, Menlo, monospace; color: #fff; background: #0000008c; padding: 3px 8px; border-radius: 999px;\n    border: 0; cursor: copy;\n  }\n  .star { border: 0; background: #0000008c; color: #fff; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 15px; line-height: 1; }\n  .star.on { color: var(--star); }\n  .tile .badge-star { position: absolute; top: 8px; right: 8px; color: var(--star); text-shadow: 0 1px 3px #0008; }\n  .more { display: block; margin: 0 auto; }\n\n  dialog {\n    width: min(1500px, 96vw); height: min(940px, 92vh); padding: 0; border: 1px solid var(--line); border-radius: 16px;\n    background: var(--surface); color: var(--text); box-shadow: 0 20px 60px #0006;\n  }\n  dialog::backdrop { background: #000b; }\n  .detail { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100%; }\n  @media (max-width: 900px) { .detail { grid-template-columns: 1fr; grid-template-rows: 55% 45%; } }\n  .stage { position: relative; display: grid; place-items: center; background: var(--surface-2); min-height: 0; }\n  .stage img { max-width: 100%; max-height: 100%; object-fit: contain; }\n  .nav { position: absolute; top: 50%; transform: translateY(-50%); border: 0; background: #0007; color: #fff; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 18px; }\n  .nav.prev { left: 12px; } .nav.next { right: 12px; }\n  aside { overflow-y: auto; padding: 20px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; }\n  aside h2 { margin: 0; font: 600 20px ui-monospace, Menlo, monospace; display: flex; align-items: center; gap: 10px; }\n  aside h3 { margin: 0 0 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }\n  aside p { margin: 0; white-space: pre-wrap; word-break: break-word; }\n  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }\n  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }\n  .chips { display: flex; flex-wrap: wrap; gap: 6px; }\n  .refs { display: flex; gap: 6px; flex-wrap: wrap; }\n  .refs img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; }\n  .close { position: absolute; top: 12px; right: 12px; z-index: 2; border: 0; background: #0007; color: #fff; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 16px; }\n  .btn { font: 500 13px/1.3 ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }\n  .btn:hover { border-color: var(--accent); }\n  .toast {\n    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0; transition: all .2s;\n    background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 999px; pointer-events: none; z-index: 100;\n  }\n  .toast.show { opacity: 1; transform: translateX(-50%); }\n</style>\n</head>\n<body>\n<header>\n  <h1><span class=\"dot\" id=\"dot\" title=\"Live connection\"></span>Claude Images</h1>\n  <div class=\"spacer\"></div>\n  <input type=\"search\" id=\"q\" placeholder=\"Search prompts or ids\" autocomplete=\"off\">\n  <button class=\"toggle\" id=\"starred\" aria-pressed=\"false\">★ Starred</button>\n</header>\n<main>\n  <div id=\"feed\"></div>\n  <div class=\"empty\" id=\"empty\" hidden>No images yet. Ask Claude for one: <code>/img:new a lighthouse at dusk</code></div>\n  <button class=\"toggle more\" id=\"more\" hidden>Load more</button>\n</main>\n<dialog id=\"dlg\"></dialog>\n<div class=\"toast\" id=\"toast\"></div>\n\n<script>\n(() => {\n  const LOADED_AT = Date.now();\n  const params = new URLSearchParams(location.search);\n  // Only tabs the plugin opened (auto=1) may close themselves; never a tab the user opened.\n  const AUTO_OPENED = params.get(\"auto\") === \"1\";\n  const state = { q: \"\", starred: false, batches: [], more: false, focus: params.get(\"batch\"), unseen: 0, detail: null };\n  const $ = (id) => document.getElementById(id);\n  const el = (tag, attrs = {}, ...kids) => {\n    const n = document.createElement(tag);\n    for (const [k, v] of Object.entries(attrs)) {\n      if (v == null || v === false) continue;\n      if (k.startsWith(\"on\")) n.addEventListener(k.slice(2), v);\n      else if (k === \"style\") n.style.cssText = v;\n      else n.setAttribute(k, v === true ? \"\" : v);\n    }\n    for (const k of kids.flat()) if (k != null) n.append(k);\n    return n;\n  };\n  const toast = (msg) => { const t = $(\"toast\"); t.textContent = msg; t.classList.add(\"show\"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove(\"show\"), 1400); };\n  const copy = (text, label) => navigator.clipboard.writeText(text).then(() => toast(label || (\"Copied \" + text)));\n  const ago = (iso) => {\n    const s = (Date.now() - Date.parse(iso)) / 1000;\n    if (s < 60) return \"just now\";\n    if (s < 3600) return Math.floor(s / 60) + \" min ago\";\n    if (s < 86400) return Math.floor(s / 3600) + \" h ago\";\n    return new Date(iso).toLocaleDateString(undefined, { day: \"numeric\", month: \"short\", year: \"numeric\" });\n  };\n  const post = (path, body) => fetch(path, { method: \"POST\", headers: { \"Content-Type\": \"application/json\", \"x-claude-image-gen\": \"1\" }, body: JSON.stringify(body) }).then((r) => r.json());\n\n  async function load(append) {\n    const p = new URLSearchParams({ limit: \"30\" });\n    if (state.q) p.set(\"q\", state.q);\n    if (state.starred) p.set(\"starred\", \"1\");\n    if (append && state.batches.length) p.set(\"before\", state.batches[state.batches.length - 1].createdAt);\n    const data = await fetch(\"/api/feed?\" + p).then((r) => r.json());\n    state.batches = append ? state.batches.concat(data.batches) : data.batches;\n    state.more = data.more;\n    render();\n  }\n\n  // Keyed rendering: only tiles whose status changed are rebuilt, so finished images never flicker.\n  const tileKey = (item) => item.id + \":\" + item.status + \":\" + (item.record && item.record.starred ? 1 : 0);\n  function render() {\n    const feed = $(\"feed\");\n    const existing = new Map([...feed.children].map((n) => [n.dataset.batch, n]));\n    let prev = null;\n    for (const b of state.batches) {\n      let sec = existing.get(b.batch);\n      if (!sec) sec = buildBatch(b);\n      else { existing.delete(b.batch); updateBatch(sec, b); }\n      if (prev ? prev.nextSibling !== sec : feed.firstChild !== sec) feed.insertBefore(sec, prev ? prev.nextSibling : feed.firstChild);\n      prev = sec;\n    }\n    for (const n of existing.values()) n.remove();\n    $(\"empty\").hidden = state.batches.length > 0;\n    $(\"more\").hidden = !state.more;\n    if (state.focus) {\n      // Look the batch up directly: a selector built from the URL would throw on quotes or brackets.\n      const f = [...feed.children].find((n) => n.dataset.batch === state.focus);\n      if (f) { f.classList.add(\"focus\"); f.scrollIntoView({ block: \"start\", behavior: \"smooth\" }); state.focus = null; }\n    }\n  }\n\n  function buildBatch(b) {\n    const grid = el(\"div\", { class: \"grid\" });\n    const sec = el(\"section\", { class: \"batch\", \"data-batch\": b.batch },\n      el(\"div\", { class: \"batch-head\" },\n        el(\"div\", { class: \"prompt\", title: b.prompt }, b.prompt),\n        el(\"div\", { class: \"meta\" },\n          el(\"span\", { class: \"when\", \"data-iso\": b.createdAt }, ago(b.createdAt)),\n          b.parent ? el(\"button\", { class: \"chip\", title: \"Refined from \" + b.parent, onclick: () => openDetail(b.parent) }, \"↳ from \", el(\"span\", { class: \"mono\" }, b.parent)) : null,\n          el(\"span\", {}, b.imageModel))),\n      grid);\n    updateBatch(sec, b);\n    return sec;\n  }\n\n  function updateBatch(sec, b) {\n    const grid = sec.querySelector(\".grid\");\n    grid.style.setProperty(\"--cols\", b.items.length >= 4 ? \"4\" : \"3\");\n    const tiles = new Map([...grid.children].map((n) => [n.dataset.id, n]));\n    let prev = null;\n    for (const item of b.items) {\n      let t = tiles.get(item.id);\n      if (!t || t.dataset.key !== tileKey(item)) {\n        const fresh = buildTile(item, b);\n        if (t) t.replaceWith(fresh);\n        t = fresh;\n      }\n      tiles.delete(item.id);\n      if (prev ? prev.nextSibling !== t : grid.firstChild !== t) grid.insertBefore(t, prev ? prev.nextSibling : grid.firstChild);\n      prev = t;\n    }\n    for (const n of tiles.values()) n.remove();\n  }\n\n  function buildTile(item, b) {\n    const r = item.record;\n    const ar = r && r.width && r.height ? r.width + \"/\" + r.height : \"1\";\n    const t = el(\"div\", { class: \"tile \" + item.status, \"data-id\": item.id, \"data-key\": tileKey(item), style: \"--ar:\" + ar });\n    if (item.status === \"pending\") {\n      const timer = el(\"span\", {}, \"\");\n      const start = Date.parse(b.createdAt);\n      const tick = () => { if (!t.isConnected && t.dataset.started) return; t.dataset.started = \"1\"; timer.textContent = Math.max(0, Math.round((Date.now() - start) / 1000)) + \"s\"; setTimeout(tick, 1000); };\n      tick();\n      t.append(el(\"div\", { class: \"center\" }, el(\"div\", {}, el(\"div\", { class: \"mono\", style: \"font-size:15px;font-weight:600;color:var(--text)\" }, item.id), el(\"div\", {}, \"generating… \", timer))));\n      return t;\n    }\n    if (item.status === \"error\") {\n      t.append(el(\"div\", { class: \"center\" }, el(\"div\", {}, el(\"div\", { class: \"mono\", style: \"font-weight:600\" }, item.id), item.message || \"Failed\")));\n      return t;\n    }\n    if (r.params && r.params.background === \"transparent\") t.classList.add(\"checker\");\n    const img = el(\"img\", { src: \"/thumb/\" + item.id, alt: r.prompt, loading: \"lazy\", decoding: \"async\" });\n    img.addEventListener(\"load\", () => img.classList.add(\"loaded\"));\n    t.append(img);\n    if (r.starred) t.append(el(\"span\", { class: \"badge-star\" }, \"★\"));\n    t.append(el(\"div\", { class: \"overlay\" },\n      el(\"button\", { class: \"idtag\", title: \"Copy id\", onclick: (e) => { e.stopPropagation(); copy(item.id); } }, item.id),\n      el(\"button\", { class: \"star\" + (r.starred ? \" on\" : \"\"), title: r.starred ? \"Unstar\" : \"Star\", onclick: (e) => { e.stopPropagation(); toggleStar(item.id, !r.starred); } }, r.starred ? \"★\" : \"☆\")));\n    t.addEventListener(\"click\", () => openDetail(item.id, b));\n    return t;\n  }\n\n  async function toggleStar(id, on) {\n    await post(\"/api/star\", { id, starred: on });\n    toast(on ? \"Starred \" + id : \"Unstarred \" + id);\n  }\n\n  async function openDetail(id, batch) {\n    const res = await fetch(\"/api/image/\" + id);\n    if (!res.ok) return toast(\"Image \" + id + \" not found\");\n    const { record: r, path, children } = await res.json();\n    const siblings = (batch && batch.items.filter((i) => i.status === \"done\").map((i) => i.id)) || [id];\n    const idx = siblings.indexOf(id);\n    state.detail = { id, batch };\n    const dlg = $(\"dlg\");\n    const row = (k, v) => v ? [el(\"dt\", {}, k), el(\"dd\", {}, v)] : [];\n    const refEls = (r.refs || []).map((ref) => ref.kind === \"library\"\n      ? el(\"img\", { src: \"/thumb/\" + ref.stored, title: \"Library image \" + ref.stored, onclick: () => openDetail(ref.stored) })\n      : el(\"img\", { src: \"/input/\" + ref.stored, title: ref.source }));\n    dlg.replaceChildren(\n      el(\"div\", { class: \"detail\" },\n        el(\"div\", { class: \"stage\" + (r.params && r.params.background === \"transparent\" ? \" checker\" : \"\") },\n          el(\"button\", { class: \"close\", title: \"Close (Esc)\", onclick: () => dlg.close() }, \"✕\"),\n          el(\"img\", { src: \"/file/\" + r.id, alt: r.prompt }),\n          siblings.length > 1 ? el(\"button\", { class: \"nav prev\", title: \"Previous (←)\", onclick: () => openDetail(siblings[(idx - 1 + siblings.length) % siblings.length], batch) }, \"‹\") : null,\n          siblings.length > 1 ? el(\"button\", { class: \"nav next\", title: \"Next (→)\", onclick: () => openDetail(siblings[(idx + 1) % siblings.length], batch) }, \"›\") : null),\n        el(\"aside\", {},\n          el(\"h2\", {}, r.id,\n            el(\"button\", { class: \"btn\", onclick: () => copy(r.id) }, \"Copy id\"),\n            el(\"button\", { class: \"btn\", onclick: async () => { await toggleStar(r.id, !r.starred); openDetail(r.id, batch); } }, r.starred ? \"★ Starred\" : \"☆ Star\")),\n          el(\"div\", {}, el(\"h3\", {}, \"Prompt\"), el(\"p\", {}, r.prompt)),\n          r.revisedPrompt && r.revisedPrompt !== r.prompt ? el(\"div\", {}, el(\"h3\", {}, \"Revised prompt\"), el(\"p\", { style: \"color:var(--muted)\" }, r.revisedPrompt)) : null,\n          r.parent || children.length ? el(\"div\", {}, el(\"h3\", {}, \"Lineage\"), el(\"div\", { class: \"chips\" },\n            r.parent ? el(\"button\", { class: \"chip\", onclick: () => openDetail(r.parent) }, \"↑ parent \", el(\"span\", { class: \"mono\" }, r.parent)) : null,\n            children.map((c) => el(\"button\", { class: \"chip\", onclick: () => openDetail(c) }, \"↓ \", el(\"span\", { class: \"mono\" }, c))))) : null,\n          refEls.length ? el(\"div\", {}, el(\"h3\", {}, \"References\"), el(\"div\", { class: \"refs\" }, refEls)) : null,\n          el(\"div\", {}, el(\"h3\", {}, \"Details\"), el(\"dl\", { class: \"kv\" },\n            row(\"Created\", new Date(r.createdAt).toLocaleString()),\n            row(\"Size\", r.width ? r.width + \" × \" + r.height : r.params.size),\n            row(\"Image model\", r.imageModel),\n            row(\"Mainline\", r.mainlineModel),\n            row(\"Quality\", r.params.quality),\n            row(\"Background\", r.params.background),\n            row(\"Context\", { none: \"new image\", previous_response: \"continued conversation\", parent_image: \"parent image re-uploaded\" }[r.context]),\n            row(\"Machine\", r.machine),\n            row(\"Project\", r.cwd))),\n          el(\"div\", { class: \"chips\" },\n            el(\"button\", { class: \"btn\", onclick: () => copy(path, \"Copied file path\") }, \"Copy file path\"),\n            el(\"button\", { class: \"btn\", onclick: () => copy(\"img:\" + r.id, \"Copied reference img:\" + r.id) }, \"Copy reference\")))));\n    if (!dlg.open) dlg.showModal();\n  }\n\n  $(\"dlg\").addEventListener(\"click\", (e) => { if (e.target === $(\"dlg\")) $(\"dlg\").close(); });\n  document.addEventListener(\"keydown\", (e) => {\n    if (!$(\"dlg\").open) return;\n    if (e.key === \"ArrowRight\") $(\"dlg\").querySelector(\".nav.next\")?.click();\n    if (e.key === \"ArrowLeft\") $(\"dlg\").querySelector(\".nav.prev\")?.click();\n  });\n\n  let qTimer;\n  $(\"q\").addEventListener(\"input\", (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value.trim(); load(); }, 200); });\n  $(\"starred\").addEventListener(\"click\", () => { state.starred = !state.starred; $(\"starred\").setAttribute(\"aria-pressed\", String(state.starred)); load(); });\n  $(\"more\").addEventListener(\"click\", () => load(true));\n  setInterval(() => document.querySelectorAll(\".when\").forEach((n) => (n.textContent = ago(n.dataset.iso))), 30_000);\n\n  document.addEventListener(\"visibilitychange\", () => { if (!document.hidden) { state.unseen = 0; document.title = \"Claude Images\"; } });\n\n  let reloadTimer;\n  const scheduleReload = () => { clearTimeout(reloadTimer); reloadTimer = setTimeout(() => load(), 120); };\n\n  function connect() {\n    const es = new EventSource(\"/events?loadedAt=\" + LOADED_AT);\n    es.onopen = () => { $(\"dot\").classList.add(\"live\"); load(); };\n    es.onerror = () => $(\"dot\").classList.remove(\"live\");\n    es.onmessage = (m) => {\n      const ev = JSON.parse(m.data);\n      if (ev.type === \"newer-tab\") {\n        // A newer gallery tab took over. Plugin-opened tabs the user hasn't navigated in may close themselves.\n        if (AUTO_OPENED && ev.loadedAt > LOADED_AT && history.length === 1) window.close();\n        return;\n      }\n      if (ev.type === \"batch\") {\n        state.focus = ev.batch;\n        history.replaceState(null, \"\", \"?batch=\" + ev.batch);\n      }\n      if (ev.type === \"image\" && document.hidden) { state.unseen++; document.title = \"(\" + state.unseen + \") Claude Images\"; }\n      if (ev.type === \"image\" || ev.type === \"error\" || ev.type === \"batch\" || ev.type === \"updated\") scheduleReload();\n      if (ev.type === \"updated\" && state.detail && state.detail.id === ev.id && $(\"dlg\").open) openDetail(ev.id, state.detail.batch);\n    };\n  }\n  connect();\n})();\n<\/script>\n</body>\n</html>\n";
 //#endregion
 //#region src/gallery/hub.ts
 const run = promisify(execFile);
+/**
+* Events from this or other sessions. Other sessions may run a different plugin version, so
+* forwarded events are validated against this schema (which also defines the type).
+*/
+const GalleryEventSchema = discriminatedUnion("type", [
+	object({
+		type: literal("batch"),
+		batch: string(),
+		ids: array(string()),
+		prompt: string(),
+		parent: string().optional(),
+		imageModel: string(),
+		createdAt: string()
+	}),
+	object({
+		type: literal("image"),
+		batch: string(),
+		id: string()
+	}),
+	object({
+		type: literal("error"),
+		batch: string(),
+		id: string(),
+		message: string()
+	}),
+	object({
+		type: literal("updated"),
+		id: string()
+	})
+]);
+const StarSchema = object({
+	id: string().refine(isImageId),
+	starred: boolean()
+});
 const AUTH_HEADER = "x-claude-image-gen";
 /**
 * Every Claude session runs its own MCP server, but there is only one gallery
@@ -17930,7 +20770,7 @@ var Gallery = class {
 	/** Give up the current role (port changed): stop serving on the old port and disconnect its tabs. */
 	resign() {
 		if (this.server) {
-			for (const c of this.clients) c.end();
+			for (const c of this.clients) c.close();
 			this.clients.clear();
 			this.server.close();
 			this.server = void 0;
@@ -17983,17 +20823,12 @@ var Gallery = class {
 			const p = this.pending.get(ev.batch);
 			if (p) p.errors[ev.id] = ev.message;
 		}
-		const data = `data: ${JSON.stringify(ev)}\n\n`;
-		for (const c of this.clients) c.write(data);
+		const data = JSON.stringify(ev);
+		for (const c of this.clients) c.push(data);
 	}
 	listen(port) {
 		return new Promise((resolve, reject) => {
-			const server = http.createServer((req, res) => {
-				this.handle(req, res).catch((e) => {
-					if (!res.headersSent) res.writeHead(e?.code === "ENOENT" ? 404 : 500, { "Content-Type": "text/plain" });
-					res.end(String(e?.message ?? e));
-				});
-			});
+			const server = nodeHTTP.createServer(toNodeHandler(this.routes()));
 			server.once("error", reject);
 			server.listen(port, "127.0.0.1", () => {
 				server.off("error", reject);
@@ -18068,131 +20903,106 @@ var Gallery = class {
 			more: list.length > limit
 		};
 	}
-	async handle(req, res) {
-		const host = (req.headers.host ?? "").replace(/:\d+$/, "");
-		if (host !== "localhost" && host !== "127.0.0.1") return void res.writeHead(403).end();
-		const url = new URL(req.url ?? "/", "http://localhost");
-		const p = url.pathname;
-		const json = (body, status = 200) => {
-			res.writeHead(status, {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-store"
-			});
-			res.end(JSON.stringify(body));
-		};
-		if (req.method === "POST") {
-			if (req.headers[AUTH_HEADER] !== "1") return void res.writeHead(403).end();
-			let body;
-			try {
-				body = JSON.parse(await readBody(req) || "{}");
-			} catch (e) {
-				return json({ error: e?.message ?? "invalid body" }, 400);
-			}
-			if (p === "/api/event") {
-				if (!isGalleryEvent(body)) return json({ error: "invalid event" }, 400);
-				this.apply(body);
-				return json({ ok: true });
-			}
-			if (p === "/api/star" && isImageId(body.id)) {
-				const r = await updateRecord(body.id, (r) => void (r.starred = !!body.starred));
-				this.apply({
-					type: "updated",
-					id: r.id
-				});
-				return json({
-					ok: true,
-					starred: !!r.starred
-				});
-			}
-			return json({ error: "not found" }, 404);
-		}
-		if (p === "/") {
-			res.writeHead(200, {
-				"Content-Type": "text/html; charset=utf-8",
-				"Cache-Control": "no-store"
-			});
-			res.end(PAGE_HTML);
-			return;
-		}
-		if (p === "/api/ping") return json({
+	routes() {
+		const app = new H3();
+		app.use((event) => {
+			const host = (event.req.headers.get("host") ?? "").replace(/:\d+$/, "");
+			if (host !== "localhost" && host !== "127.0.0.1") throw HTTPError.status(403);
+			if (event.req.method === "POST" && event.req.headers.get(AUTH_HEADER) !== "1") throw HTTPError.status(403);
+			event.res.headers.set("cache-control", "no-store");
+		});
+		app.get("/", () => new Response(PAGE_HTML, { headers: { "content-type": "text/html; charset=utf-8" } }));
+		app.get("/api/ping", () => ({
 			app: APP_NAME,
 			version: VERSION,
 			pid: process.pid
-		});
-		if (p === "/api/feed") return json(this.feed(url.searchParams));
-		if (p.startsWith("/api/image/")) {
-			const r = await getRecord(p.slice(11));
-			if (!r) return json({ error: "not found" }, 404);
-			return json({
+		}));
+		app.get("/api/feed", (event) => this.feed(event.url.searchParams));
+		app.get("/api/image/:id", async (event) => {
+			const r = await getRecord(getRouterParam(event, "id") ?? "");
+			if (!r) throw HTTPError.status(404);
+			return {
 				record: r,
 				path: imagePath(r),
 				children: childrenOf(r.id).map((c) => c.id)
-			});
-		}
-		if (p === "/events") {
-			res.writeHead(200, {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-store",
-				Connection: "keep-alive"
-			});
-			res.write(`data: ${JSON.stringify({
+			};
+		});
+		app.get("/events", (event) => {
+			const stream = createEventStream(event);
+			const loadedAt = Number(event.url.searchParams.get("loadedAt")) || 0;
+			stream.push(JSON.stringify({
 				type: "hello",
-				loadedAt: Number(url.searchParams.get("loadedAt")) || 0
-			})}\n\n`);
-			const announce = `data: ${JSON.stringify({
+				loadedAt
+			}));
+			for (const c of this.clients) c.push(JSON.stringify({
 				type: "newer-tab",
-				loadedAt: Number(url.searchParams.get("loadedAt")) || 0
-			})}\n\n`;
-			for (const c of this.clients) c.write(announce);
-			this.clients.add(res);
-			const keepAlive = setInterval(() => res.write(": ping\n\n"), 25e3);
+				loadedAt
+			}));
+			this.clients.add(stream);
+			const keepAlive = setInterval(() => void stream.pushComment("ping"), 25e3);
 			keepAlive.unref();
-			req.on("close", () => {
+			stream.onClosed(() => {
 				clearInterval(keepAlive);
-				this.clients.delete(res);
+				this.clients.delete(stream);
 			});
-			return;
-		}
-		const fileMatch = /^\/(file|thumb)\/([a-z2-9]{4})$/.exec(p);
-		if (fileMatch) {
-			const r = await getRecord(fileMatch[2]);
-			if (!r) return void res.writeHead(404).end();
+			return stream.send();
+		});
+		const imageRoute = (kind) => async (event) => {
+			const id = getRouterParam(event, "id") ?? "";
+			const r = isImageId(id) ? await getRecord(id) : void 0;
+			if (!r) throw HTTPError.status(404);
 			const file = imagePath(r);
-			await ensureLocal(file);
-			const served = fileMatch[1] === "thumb" ? await thumbnail(r, file) : file;
-			return sendFile(res, served, {
-				"Content-Type": MIME[extOf(served)] ?? "application/octet-stream",
-				"Cache-Control": "public, max-age=31536000, immutable"
+			await ensureLocal(file).catch(() => {
+				throw HTTPError.status(404);
 			});
-		}
-		const inputMatch = /^\/input\/([a-f0-9]{16}\.[a-z]+)$/.exec(p);
-		if (inputMatch) {
-			const file = path.join(inputsDir(), inputMatch[1]);
-			await ensureLocal(file);
-			return sendFile(res, file, {
-				"Content-Type": MIME[extOf(file)] ?? "application/octet-stream",
-				"Cache-Control": "max-age=31536000"
+			return fileResponse(kind === "thumb" ? await thumbnail(r, file) : file, "public, max-age=31536000, immutable");
+		};
+		app.get("/file/:id", imageRoute("file"));
+		app.get("/thumb/:id", imageRoute("thumb"));
+		app.get("/input/:name", async (event) => {
+			const name = getRouterParam(event, "name") ?? "";
+			if (!/^[a-f0-9]{16}\.[a-z]+$/.test(name)) throw HTTPError.status(404);
+			const file = path.join(inputsDir(), name);
+			await ensureLocal(file).catch(() => {
+				throw HTTPError.status(404);
 			});
-		}
-		res.writeHead(404).end();
+			return fileResponse(file, "max-age=31536000");
+		});
+		const small = { middleware: [bodyLimit(1 << 20)] };
+		app.post("/api/event", async (event) => {
+			this.apply(await readValidatedBody(event, GalleryEventSchema));
+			return { ok: true };
+		}, small);
+		app.post("/api/star", async (event) => {
+			const { id, starred } = await readValidatedBody(event, StarSchema);
+			const r = await updateRecord(id, (r) => void (r.starred = starred));
+			this.apply({
+				type: "updated",
+				id: r.id
+			});
+			return {
+				ok: true,
+				starred: !!r.starred
+			};
+		}, small);
+		return app;
 	}
 };
 /**
-* Stream a file without risking the process: the file is opened before headers
-* are sent (so a missing file becomes a 404 via the handler's catch), and
-* pipeline() handles read errors mid-stream instead of throwing an uncaught
-* 'error' event that would kill this MCP server.
+* Gallery files are local and at most a few MB (a 4K PNG is ~20 MB), so they're read whole:
+* a missing or vanished file becomes a clean 404 instead of an error halfway through a stream.
 */
-async function sendFile(res, file, headers) {
-	const stream = fs.createReadStream(file);
-	await new Promise((resolve, reject) => {
-		stream.once("open", () => resolve());
-		stream.once("error", reject);
-	});
-	res.writeHead(200, headers);
-	pipeline(stream, res, (err) => {
-		if (err) res.destroy();
-	});
+async function fileResponse(file, cacheControl) {
+	let data;
+	try {
+		data = await fs.promises.readFile(file);
+	} catch (e) {
+		throw e?.code === "ENOENT" ? HTTPError.status(404) : e;
+	}
+	return new Response(new Uint8Array(data), { headers: {
+		"content-type": MIME[extOf(file)] ?? "application/octet-stream",
+		"cache-control": cacheControl
+	} });
 }
 function summary(r) {
 	return {
@@ -18228,31 +21038,6 @@ async function thumbnail(r, file) {
 	} catch {
 		return file;
 	}
-}
-function isGalleryEvent(v) {
-	const str = (x) => typeof x === "string";
-	if (!v || typeof v !== "object") return false;
-	switch (v.type) {
-		case "batch": return str(v.batch) && Array.isArray(v.ids) && v.ids.every(str) && str(v.prompt) && str(v.imageModel) && str(v.createdAt) && (v.parent === void 0 || str(v.parent));
-		case "image": return str(v.batch) && str(v.id);
-		case "error": return str(v.batch) && str(v.id) && str(v.message);
-		case "updated": return str(v.id);
-		default: return false;
-	}
-}
-function readBody(req) {
-	return new Promise((resolve, reject) => {
-		let data = "";
-		req.on("data", (c) => {
-			data += c;
-			if (data.length > 1 << 20) {
-				reject(/* @__PURE__ */ new Error("body too large"));
-				req.destroy();
-			}
-		});
-		req.on("end", () => resolve(data));
-		req.on("error", reject);
-	});
 }
 const gallery = new Gallery();
 /** Standalone mode: `node dist/server.js --gallery` keeps the gallery up without a Claude session. */
