@@ -83,6 +83,10 @@ export async function generate(
   async function request(mode: ImageRecord["context"]) {
     let text = args.prompt;
     const content: Record<string, unknown>[] = [];
+    if (mode === "previous_response" && refs.length) {
+      // Without this, the model may edit one of the attached references instead of the previous image.
+      text = `Modify the previously generated image. The attached images are references only.\n\n${text}`;
+    }
     if (mode === "parent_image") {
       text = `The first attached image is the image to modify${refs.length ? "; the others are references" : ""}.\n\n${text}`;
       content.push({ type: "input_image", image_url: await getParentDataUrl() });
@@ -100,6 +104,7 @@ export async function generate(
   }
 
   const batch = randomToken(6);
+  const batchStarted = new Date();
   const ids = newIds(args.count);
   const url = await gallery.notify({
     type: "batch",
@@ -143,7 +148,7 @@ export async function generate(
       }
 
       const ext = call.output_format || (tool.output_format as string) || "png";
-      const file = `${baseName(id, args.prompt)}.${ext}`;
+      const file = `${baseName(id, args.prompt, batchStarted)}.${ext}`; // one date per batch, even across midnight
       const record: ImageRecord = {
         id,
         file,

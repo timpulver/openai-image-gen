@@ -36743,7 +36743,8 @@ function slugify2(text2, maxWords = 6) {
   return text2.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean).slice(0, maxWords).join("-").slice(0, 48).replace(/-+$/, "") || "image";
 }
 function baseName(id, prompt, date5 = /* @__PURE__ */ new Date()) {
-  const day = date5.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, "0");
+  const day = `${date5.getFullYear()}-${pad(date5.getMonth() + 1)}-${pad(date5.getDate())}`;
   return `${day}-${id}-${slugify2(prompt)}`;
 }
 async function ensureLocal(file2, timeoutMs = 9e4) {
@@ -37863,6 +37864,11 @@ async function generate(args, onProgress) {
   async function request2(mode) {
     let text2 = args.prompt;
     const content = [];
+    if (mode === "previous_response" && refs.length) {
+      text2 = `Modify the previously generated image. The attached images are references only.
+
+${text2}`;
+    }
     if (mode === "parent_image") {
       text2 = `The first attached image is the image to modify${refs.length ? "; the others are references" : ""}.
 
@@ -37881,6 +37887,7 @@ ${text2}`;
     return createResponse(body);
   }
   const batch = randomToken(6);
+  const batchStarted = /* @__PURE__ */ new Date();
   const ids = newIds(args.count);
   const url2 = await gallery.notify({
     type: "batch",
@@ -37915,7 +37922,7 @@ ${text2}`;
         throw new Error(`No image was returned.${said ? ` The model said: ${said}` : ""}`);
       }
       const ext = call.output_format || tool.output_format || "png";
-      const file2 = `${baseName(id, args.prompt)}.${ext}`;
+      const file2 = `${baseName(id, args.prompt, batchStarted)}.${ext}`;
       const record2 = {
         id,
         file: file2,

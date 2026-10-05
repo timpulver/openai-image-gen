@@ -120,6 +120,7 @@ try {
   let req = mock.requests.at(-1);
   assert.equal(req.previous_response_id, sidecar(a).json.openai.responseId);
   assert.equal(req.input[0].content.filter((c) => c.type === "input_image").length, 2);
+  assert.match(req.input[0].content[0].text, /^Modify the previously generated image\. The attached images are references only\./);
   const [c] = ids(r.text);
   const cj = sidecar(c).json;
   assert.equal(cj.parent, a);

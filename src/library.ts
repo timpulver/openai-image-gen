@@ -115,8 +115,10 @@ export function slugify(text: string, maxWords = 6): string {
   );
 }
 
+/** The date is local (an image made at 00:30 in Berlin belongs to that day, not the previous UTC one). */
 export function baseName(id: string, prompt: string, date = new Date()): string {
-  const day = date.toISOString().slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   return `${day}-${id}-${slugify(prompt)}`;
 }
 
